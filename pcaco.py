@@ -1,6 +1,8 @@
 import argparse
 import time
+import numpy as np
 from pymoo.problems import get_problem
+import matplotlib.pyplot as plt
 
 from user_value_functions import LinearUserValueFunction, ChebycheffUserValueFunction
 from models import MostDiscriminatingValueFunction, MinimalSlopeChangeValueFunction, MaximalSumOfScoresValueFunction, \
@@ -8,13 +10,30 @@ from models import MostDiscriminatingValueFunction, MinimalSlopeChangeValueFunct
 
 
 class PairwiseComparisonsBasedAntColonyOptimization:
-    def __init__(self, generations=100, interval=10, buffer=50, problem='zdt1', variables=None, objectives=None,
-                 user_value_function='linear', extreme_objective=False, model='mdvf', with_nondominance_ranking=True,
-                 save_csv=True, draw_plot=True, verbose=False):
+    def __init__(self, generations=100, ants=100, q=0.1, xi=0.5, interval=10, buffer=50, problem='zdt1', variables=None,
+                 objectives=None, user_value_function='linear', extreme_objective=False, model='mdvf',
+                 with_nondominance_ranking=True, seed=42, save_csv=True, draw_plot=True, verbose=False):
+        start_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
+        # handling given parameters
         if isinstance(generations, int) and generations > 0:
             self.generations = generations
         else:
             raise ValueError(f'wrong number of generations: {generations}')
+
+        if isinstance(ants, int) and ants > 0:
+            self.ants = ants
+        else:
+            raise ValueError(f'wrong number of ants: {ants}')
+
+        if isinstance(q, float) and 0.0 < q < 1.0:
+            self.q = q
+        else:
+            raise ValueError(f'wrong diversification parameter q: {q}')
+
+        if isinstance(xi, float) and 0.0 < xi < 1.0:
+            self.xi = xi
+        else:
+            raise ValueError(f'wrong convergence parameter xi: {xi}')
 
         if isinstance(interval, int) and 0 < interval < generations:
             self.interval = interval
@@ -77,6 +96,9 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         if isinstance(with_nondominance_ranking, bool):
             self.with_nondominance_ranking = with_nondominance_ranking
 
+        if isinstance(seed, int):
+            self.seed = seed
+
         if isinstance(save_csv, bool):
             self.save_csv = save_csv
 
@@ -86,23 +108,79 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         if isinstance(verbose, bool):
             self.verbose = verbose
 
-        self.start_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
         if self.verbose:
-            print(f'PC-ACO initialized successfully at {self.start_time} with parameters:', flush=True)
+            print(f'PC-ACO initialized successfully at {start_time} with parameters:', flush=True)
             for key, value in self.__dict__.items():
-                if isinstance(value, int) or isinstance(value, str) or isinstance(value, bool):
+                if isinstance(value, int) or isinstance(value, str) or isinstance(value, bool) \
+                        or isinstance(value, float):
                     print(f'\t{key}:'.ljust(25) + f'\t{value}', flush=True)
                 else:
                     print(f'\t{key}:'.ljust(25) + f'\t{value.__class__.__name__}', flush=True)
+        self.start_time = start_time
+        self.duration = 0.0
+
+        # initializing ant colony
+        self.rng = np.random.default_rng(seed)
+        self.means = self.rng.uniform(low=np.tile(self.problem.xl, (self.ants, 1)),
+                                      high=np.tile(self.problem.xu, (self.ants, 1)),
+                                      size=(self.ants, self.variables))
+        self.stds = np.ones((self.ants, self.variables)) / 10.0
+        self.weights = np.ones(self.ants) / self.ants
+
+    def construct_solution(self):
+        # construction loop
+        for n in range(self.variables):
+            # TODO
+            pass
+        return []
+
+    def sort_solutions(self, solutions):
+        # TODO
+        sorted_solutions = self.model.sort(solutions)
+        return sorted_solutions
+
+    def update_ant_colony(self):
+        # TODO
+        pass
+
+    def save(self):
+        # TODO
+        pass
+
+    def plot(self):
+        plt.figure(figsize=(10, 10))
+        # TODO
+        plt.close()
+        plt.savefig(f'results/plot_{self.start_time}.png')
 
     def solve(self):
-        pass
+        start = time.perf_counter()
+        # main ACO loop
+        for g in range(1, self.generations+1):
+            population = [self.construct_solution() for k in range(self.ants)]
+            sorted_population = self.sort_solutions(population)
+            self.update_ant_colony()
+            # TODO
+
+        stop = time.perf_counter()
+        self.duration = stop - start
+        if self.save_csv:
+            self.save()
+            # TODO
+        if self.draw_plot:
+            self.plot()
+            # TODO
+        if self.verbose:
+            print(f'PC-ACO completed optimization successfully in {np.round(self.duration, 3)}s')
 
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-g', '--generations', type=int, default=100, help='number of generations')
+    parser.add_argument('-g', '--generations', type=int, default=100, help='number of ACO generations')
+    parser.add_argument('-a', '--ants', type=int, default=100, help='number of ants and population size')
+    parser.add_argument('-q', type=float, default=0.1, help='diversification parameter of ACO')
+    parser.add_argument('-xi', type=float, default=0.5, help='convergence parameter of ACO')
     parser.add_argument('-i', '--interval', type=int, default=10,
                         help='intervals between asking the user for a pairwise comparison; interval<generations')
     parser.add_argument('-b', '--buffer', type=int, default=50,
@@ -124,7 +202,9 @@ if __name__ == '__main__':
                         help='type of the value function approach for the preference model')
     parser.add_argument('-r', '--with-nondominance-ranking', action='store_true',
                         help='whether to use the nondominance ranking during solution sorting')
-    parser.add_argument('-s', '--save-csv', action='store_true',
+    parser.add_argument('-s', '--seed', type=int, default=42,
+                        help='random number generator seed')
+    parser.add_argument('-c', '--save-csv', action='store_true',
                         help='save results to csv')
     parser.add_argument('-d', '--draw-plot', action='store_true',
                         help='draw plot of the results')
@@ -133,6 +213,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     pcaco = PairwiseComparisonsBasedAntColonyOptimization(generations=args.generations,
+                                                          ants=args.ants,
+                                                          q=args.q,
+                                                          xi=args.xi,
                                                           interval=args.interval,
                                                           buffer=args.buffer,
                                                           problem=args.problem,
@@ -142,6 +225,7 @@ if __name__ == '__main__':
                                                           extreme_objective=args.extreme_objective,
                                                           model=args.model,
                                                           with_nondominance_ranking=args.with_nondominance_ranking,
+                                                          seed=args.seed,
                                                           save_csv=args.save_csv,
                                                           draw_plot=args.draw_plot,
                                                           verbose=args.verbose)

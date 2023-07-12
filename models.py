@@ -5,6 +5,10 @@ class Model:
     def __init__(self):
         pass
 
+    def sort(self, solutions):
+        #TODO
+        return solutions
+
 
 class MostDiscriminatingValueFunction(Model):
     pass
