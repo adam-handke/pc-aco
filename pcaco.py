@@ -145,8 +145,14 @@ class PairwiseComparisonsBasedAntColonyOptimization:
 
         # weight update
         if self.with_nondominance_ranking:
-            # TODO
-            ranked_population = self.model.rank(objective_values)
+            non_dominated_fronts = self.nds.do(objective_values)
+            ranked_population = np.zeros(self.ants)
+            ranking_start = 0
+            for front in non_dominated_fronts:
+                ranked_front = self.model.rank([objective_values[index] for index in front]) + ranking_start
+                for index, rank in zip(front, ranked_front):
+                    ranked_population[index] = rank
+                ranking_start = np.max(ranked_front) + 1
         else:
             ranked_population = self.model.rank(objective_values)
         self.aco_weights = np.array([self.rank_weight_dict[rank] for rank in ranked_population])
