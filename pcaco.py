@@ -162,8 +162,15 @@ class PairwiseComparisonsBasedAntColonyOptimization:
 
     def update_preference_model(self, objective_values):
         # randomly select 2 non-dominated solutions and ask DM for comparison
-        non_dominated_solutions = self.nds.do(objective_values, only_non_dominated_front=True)
-        selected_index1, selected_index2 = self.rng.choice(non_dominated_solutions, size=2, replace=False)
+        non_dominated_fronts = self.nds.do(objective_values)
+        non_dominated_solutions = non_dominated_fronts[0]
+        if len(non_dominated_solutions) > 1:
+            selected_index1, selected_index2 = self.rng.choice(non_dominated_solutions, size=2, replace=False)
+        else:
+            # if there is only 1 solution in the first front, then also use the second front
+            selected_index1 = non_dominated_solutions[0]
+            selected_index2 = self.rng.choice(non_dominated_fronts[1], size=1)[0]
+        # calculate user value function based on objective values
         obj1, obj2 = objective_values[selected_index1], objective_values[selected_index2]
         val1 = self.user_value_function.calculate(obj1)
         val2 = self.user_value_function.calculate(obj2)
@@ -225,13 +232,26 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         }, index=[0])
         results_df.to_csv('results/results.csv', mode='a', sep=';', index=False, header=False)
 
-    def plot(self, objective_values):
+    def plot(self, history):
         if self.objectives == 2:
             plt.figure(figsize=(10, 10))
-            plt.scatter(objective_values[:, 0], objective_values[:, 1])
+            color_dict = {10: 'tab:green', 30: 'tab:blue', 60: 'tab:purple', 100: 'tab:red'}
+
+            for gen_to_plot in [10, 30, 60, 100]:
+                plt.scatter(history[gen_to_plot-1][:, 0], history[gen_to_plot-1][:, 1], c=color_dict[gen_to_plot],
+                            label=f'PC-ACO-{str(self.model)} after {gen_to_plot} gen.', alpha=0.8, marker='X')
+            try:
+                pareto_front = self.problem.pareto_front()
+                plt.scatter(pareto_front[:, 0], pareto_front[:, 1], edgecolors='dimgrey', facecolors='none',
+                            label=self.problem.__class__.__name__ + ' Pareto-front', alpha=0.8, marker='.')
+            except:
+                print('Pareto-front plotting error.')
             plt.xlabel('Objective 1')
             plt.ylabel('Objective 2')
-            plt.savefig(f'results/plot_{self.start_time}.png')
+            #plt.xticks(np.arange(0, 1.5, 0.1))
+            #plt.yticks(np.arange(0, 1.5, 0.1))
+            plt.legend(loc='upper right')
+            plt.savefig(f'results/plot_{self.start_time}.png', bbox_inches='tight', pad_inches=0.3)
             plt.close()
         else:
             print('Plotting error - only instances with 2 objectives can be plotted.', flush=True)
@@ -244,6 +264,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                                       high=np.tile(self.problem.xu, (self.ants, 1)),
                                       size=(self.ants, self.variables))
         objective_values = self.problem.evaluate(population)
+        history = []
         self.update_preference_model(objective_values)
         self.update_ant_colony(population, objective_values)
         if self.verbose:
@@ -262,6 +283,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
 
             population = new_population
             objective_values = new_objective_values
+            history.append(objective_values)
 
             if self.verbose:
                 convergence_indicators = [self.user_value_function.calculate(obj) for obj in objective_values]
@@ -274,7 +296,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         if self.save_csv:
             self.save(objective_values)
         if self.draw_plot:
-            self.plot(objective_values)
+            self.plot(history)
         if self.verbose:
             print(f'PC-ACO completed optimization successfully in {np.round(self.duration, 3)}s')
 
@@ -283,7 +305,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-g', '--generations', type=int, default=100, help='number of ACO generations')
-    parser.add_argument('-a', '--ants', type=int, default=100, help='number of ants and population size')
+    parser.add_argument('-a', '--ants', type=int, default=30, help='number of ants and population size')
     parser.add_argument('-q', type=float, default=0.1, help='diversification parameter of ACO')
     parser.add_argument('-xi', type=float, default=0.5, help='convergence parameter of ACO')
     parser.add_argument('-i', '--interval', type=int, default=10,
