@@ -1,7 +1,9 @@
 import argparse
 import time
 import numpy as np
+import pandas as pd
 from pymoo.problems import get_problem
+from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 import matplotlib.pyplot as plt
 
 from user_value_functions import LinearUserValueFunction, ChebycheffUserValueFunction
@@ -74,9 +76,9 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             weights = weights_dict['regular'][self.objectives]
 
         if user_value_function == 'linear':
-            self.user_value_function = LinearUserValueFunction(weights)
+            self.user_value_function = LinearUserValueFunction(weights, extreme_objective)
         elif user_value_function == 'chebycheff':
-            self.user_value_function = ChebycheffUserValueFunction(weights)
+            self.user_value_function = ChebycheffUserValueFunction(weights, extreme_objective)
         else:
             raise ValueError(f'unknown user value function: {user_value_function}')
 
@@ -121,55 +123,158 @@ class PairwiseComparisonsBasedAntColonyOptimization:
 
         # initializing ant colony
         self.rng = np.random.default_rng(seed)
-        self.means = self.rng.uniform(low=np.tile(self.problem.xl, (self.ants, 1)),
-                                      high=np.tile(self.problem.xu, (self.ants, 1)),
-                                      size=(self.ants, self.variables))
-        self.stds = np.ones((self.ants, self.variables)) / 10.0
-        self.weights = np.ones(self.ants) / self.ants
+        self.nds = NonDominatedSorting()
+        self.aco_means = None  # 2d matrix (self.ants, self.variables)
+        self.aco_weights = None  # 1d vector (self.ants), don't confuse with user value function weights
+        self.aco_weight_sum = None
+        self.aco_probabilities = None
+        # self.stds = None  # 2d matrix (self.ants, self.variables)
+        # no need to store stds as they can be calculated at construction
 
-    def construct_solution(self):
-        # construction loop
-        for n in range(self.variables):
+        # pre-calculation of all possible weight values as they only depend on ranks
+        # based on equation (7) from K. Socha & M. Dorigo, Ant colony optimization for continuous domains, 2008
+        self.weight_constant1 = 1.0 / (self.q * self.ants * np.sqrt(2.0 * np.pi))
+        self.weight_constant2 = - 1.0 / (2.0 * self.q**2 * self.ants**2)
+        self.rank_weight_dict = {rank: self.weight_constant1 * np.exp(rank**2 * self.weight_constant2)
+                                 for rank in range(self.ants)}
+
+    def update_ant_colony(self, population, objective_values):
+        # mean update
+        # based on equation (6) from K. Socha & M. Dorigo, Ant colony optimization for continuous domains, 2008
+        self.aco_means = population
+
+        # weight update
+        if self.with_nondominance_ranking:
             # TODO
-            pass
-        return []
+            ranked_population = self.model.rank(objective_values)
+        else:
+            ranked_population = self.model.rank(objective_values)
+        self.aco_weights = np.array([self.rank_weight_dict[rank] for rank in ranked_population])
+        self.aco_weight_sum = np.sum(self.aco_weights)
+        # based on equation (8) from K. Socha & M. Dorigo, Ant colony optimization for continuous domains, 2008
+        self.aco_probabilities = self.aco_weights / self.aco_weight_sum
 
-    def sort_solutions(self, solutions):
-        # TODO
-        sorted_solutions = self.model.sort(solutions)
-        return sorted_solutions
+        # standard deviation is calculated at construction to save time (not selected stds can be ignored)
+        # self.aco_stds = np.zeros((self.ants, self.variables))
+        # for k in range(self.ants):
+        #     for n in range(self.variables):
+        #         self.aco_stds[k, n] = self.xi * np.sum(np.abs(population[:, n] - population[k, n])) / (self.ants - 1)
 
-    def update_ant_colony(self):
-        # TODO
-        pass
+    def update_preference_model(self, objective_values):
+        # randomly select 2 non-dominated solutions and ask DM for comparison
+        non_dominated_solutions = self.nds.do(objective_values, only_non_dominated_front=True)
+        selected_index1, selected_index2 = self.rng.choice(non_dominated_solutions, size=2, replace=False)
+        obj1, obj2 = objective_values[selected_index1], objective_values[selected_index2]
+        val1 = self.user_value_function.calculate(obj1)
+        val2 = self.user_value_function.calculate(obj2)
+        if val1 >= val2:
+            compared_pair = [obj1, obj2]
+        else:
+            compared_pair = [obj2, obj1]
+        self.model.update(compared_pair)
 
-    def save(self):
-        # TODO
-        pass
+    def reflected_normal_distribution(self, loc, scale, min_val, max_val):
+        # safely get a number from normal distribution
+        # in case the value is out of the allowed bounds, reflect the value on the lower/upper bound
+        # in case the value is still out of bounds, trim to the lower/upper bound
+        base_val = self.rng.normal(loc, scale)
+        if base_val < min_val:
+            return min(max(min_val - base_val, min_val), max_val)
+        elif base_val > max_val:
+            return max(min(2.0 * max_val - base_val, max_val), min_val)
+        else:
+            return base_val
 
-    def plot(self):
-        plt.figure(figsize=(10, 10))
-        # TODO
-        plt.close()
-        plt.savefig(f'results/plot_{self.start_time}.png')
+    def construct_solution(self, population):
+        # construction loop for each variable separately
+        solution = np.zeros(self.variables)
+        for n in range(self.variables):
+            # step 1: randomly select the gaussian function
+            k = self.rng.choice(range(self.ants), size=1, p=self.aco_probabilities)
+
+            # step 2: randomly sample the value from a parametrized normal distribution
+            # calculate std for selected gaussian function
+            # based on equation (9) from K. Socha & M. Dorigo, Ant colony optimization for continuous domains, 2008
+            std = self.xi * np.sum(np.abs(population[:, n] - population[k, n])) / (self.ants - 1)
+            solution[n] = self.reflected_normal_distribution(loc=self.aco_means[k, n], scale=std,
+                                                             min_val=self.problem.xl[n],
+                                                             max_val=self.problem.xu[n]).item()
+        return np.array(solution)
+
+    def save(self, objective_values):
+        convergence_indicators = [self.user_value_function.calculate(obj) for obj in objective_values]
+        results_df = pd.DataFrame({
+            'start_time': self.start_time,
+            'seed': self.seed,
+            'generations': self.generations,
+            'ants': self.ants,
+            'q': self.q,
+            'xi': self.xi,
+            'interval': self.interval,
+            'buffer': self.buffer,
+            'problem': self.problem.__class__.__name__,
+            'variables': self.variables,
+            'objectives': self.objectives,
+            'user_value_function': str(self.user_value_function),
+            'extreme_objective': self.user_value_function.extreme_objective,
+            'model': str(self.model),
+            'with_nondominance_ranking': self.with_nondominance_ranking,
+            'min_convergence': np.min(convergence_indicators),
+            'avg_convergence': np.mean(convergence_indicators),
+            'duration': self.duration
+        }, index=[0])
+        results_df.to_csv('results/results.csv', mode='a', sep=';', index=False, header=False)
+
+    def plot(self, objective_values):
+        if self.objectives == 2:
+            plt.figure(figsize=(10, 10))
+            plt.scatter(objective_values[:, 0], objective_values[:, 1])
+            plt.xlabel('Objective 1')
+            plt.ylabel('Objective 2')
+            plt.savefig(f'results/plot_{self.start_time}.png')
+            plt.close()
+        else:
+            print('Plotting error - only instances with 2 objectives can be plotted.', flush=True)
 
     def solve(self):
         start = time.perf_counter()
+
+        # random initialization of the 0th population
+        population = self.rng.uniform(low=np.tile(self.problem.xl, (self.ants, 1)),
+                                      high=np.tile(self.problem.xu, (self.ants, 1)),
+                                      size=(self.ants, self.variables))
+        objective_values = self.problem.evaluate(population)
+        self.update_preference_model(objective_values)
+        self.update_ant_colony(population, objective_values)
+        if self.verbose:
+            convergence_indicators = [self.user_value_function.calculate(obj) for obj in objective_values]
+            print(f'Finished generation 0 after {np.round(time.perf_counter() - start, 3)}s from start '
+                  f'(min={np.round(np.min(convergence_indicators), 3)}; '
+                  f'avg={np.round(np.mean(convergence_indicators), 3)})', flush=True)
+
         # main ACO loop
         for g in range(1, self.generations+1):
-            population = [self.construct_solution() for k in range(self.ants)]
-            sorted_population = self.sort_solutions(population)
-            self.update_ant_colony()
-            # TODO
+            new_population = np.array([self.construct_solution(population) for _ in range(self.ants)])
+            new_objective_values = self.problem.evaluate(new_population)
+            if g % self.interval == 0:
+                self.update_preference_model(new_objective_values)
+            self.update_ant_colony(new_population, new_objective_values)
+
+            population = new_population
+            objective_values = new_objective_values
+
+            if self.verbose:
+                convergence_indicators = [self.user_value_function.calculate(obj) for obj in objective_values]
+                print(f'Finished generation {g} after {np.round(time.perf_counter() - start, 3)}s from start '
+                      f'(min={np.round(np.min(convergence_indicators), 3)}; '
+                      f'avg={np.round(np.mean(convergence_indicators), 3)})', flush=True)
 
         stop = time.perf_counter()
         self.duration = stop - start
         if self.save_csv:
-            self.save()
-            # TODO
+            self.save(objective_values)
         if self.draw_plot:
-            self.plot()
-            # TODO
+            self.plot(objective_values)
         if self.verbose:
             print(f'PC-ACO completed optimization successfully in {np.round(self.duration, 3)}s')
 

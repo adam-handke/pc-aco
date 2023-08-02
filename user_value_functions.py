@@ -2,11 +2,12 @@ import numpy as np
 
 
 class UserValueFunction:
-    def __init__(self, weights):
+    def __init__(self, weights, extreme_objective):
         if np.round(np.sum(weights), 7) == 1.0:
             self.weights = np.array(weights)
         else:
             raise ValueError(f'weights do not add up to 1.0: {weights} (sum={np.sum(weights)})')
+        self.extreme_objective = extreme_objective
 
     def _function(self, objectives):
         raise NotImplementedError
@@ -20,10 +21,16 @@ class UserValueFunction:
 
 
 class LinearUserValueFunction(UserValueFunction):
+    def __str__(self):
+        return 'Linear'
+
     def _function(self, objectives):
         return np.sum(self.weights * objectives)
 
 
 class ChebycheffUserValueFunction(UserValueFunction):
+    def __str__(self):
+        return 'Chebycheff'
+
     def _function(self, objectives):
         return np.max(self.weights * objectives)
