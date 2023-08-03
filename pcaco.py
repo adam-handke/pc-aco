@@ -306,6 +306,10 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         if self.verbose:
             print(f'PC-ACO completed optimization successfully in {np.round(self.duration, 3)}s')
 
+        # return min, avg, duration
+        convergence_indicators = [self.user_value_function.calculate(obj) for obj in objective_values]
+        return np.min(convergence_indicators), np.mean(convergence_indicators), self.duration
+
 
 if __name__ == '__main__':
 
