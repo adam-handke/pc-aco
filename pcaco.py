@@ -186,7 +186,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         obj1, obj2 = objective_values[selected_index1], objective_values[selected_index2]
         val1 = self.user_value_function.calculate(obj1)
         val2 = self.user_value_function.calculate(obj2)
-        if val1 >= val2:
+        if val1 <= val2:
             compared_pair = [obj1, obj2]
         else:
             compared_pair = [obj2, obj1]
@@ -287,14 +287,14 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         objective_values = self.problem.evaluate(population)
 
         # assign approximate bounds of objective values in preference model (needed for interpolation)
-        self.model.min_obj = np.zeros(self.objectives)
-        self.model.max_obj = np.ceil(np.max(objective_values, axis=0))
+        self.model.best_obj = np.zeros(self.objectives)
+        self.model.worst_obj = np.ceil(np.max(objective_values, axis=0))
 
         history = []
         self.update_preference_model(objective_values)
         self.update_ant_colony(population, objective_values)
         if self.verbose:
-            convergence_indicators = [self.user_value_function.calculate(obj) for obj in objective_values]
+            convergence_indicators = [self.user_value_function.calculate(obj_val) for obj_val in objective_values]
             print(f'Finished generation 0 after {np.round(time.perf_counter() - start, 3)}s from start '
                   f'(min={np.round(np.min(convergence_indicators), 3)}; '
                   f'avg={np.round(np.mean(convergence_indicators), 3)})', flush=True)
@@ -307,12 +307,12 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             # check if the objective upper bound is preserved, update if necessary (needed for interpolation)
             max_obj = np.max(new_objective_values, axis=0)
             for obj in range(self.objectives):
-                if max_obj[obj] > self.model.max_obj[obj]:
+                if max_obj[obj] > self.model.worst_obj[obj]:
                     new_upper_bound = np.ceil(max_obj[obj])
                     if self.verbose:
-                        print(f'Upper bound of objective {obj+1} ({self.model.max_obj[obj]}) exceeded and updated to:',
+                        print(f'Upper bound of objective {obj} ({self.model.worst_obj[obj]}) exceeded and updated:',
                               new_upper_bound)
-                    self.model.max_obj[obj] = new_upper_bound
+                    self.model.worst_obj[obj] = new_upper_bound
 
             # update preference model every 'interval' generations
             if g % self.interval == 0:
@@ -325,7 +325,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             history.append(objective_values)
 
             if self.verbose:
-                convergence_indicators = [self.user_value_function.calculate(obj) for obj in objective_values]
+                convergence_indicators = [self.user_value_function.calculate(obj_val) for obj_val in objective_values]
                 print(f'Finished generation {g} after {np.round(time.perf_counter() - start, 3)}s from start '
                       f'(min={np.round(np.min(convergence_indicators), 3)}; '
                       f'avg={np.round(np.mean(convergence_indicators), 3)})', flush=True)
@@ -340,8 +340,8 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             print(f'PC-ACO completed optimization successfully in {np.round(self.duration, 3)}s')
 
         # return min, avg, duration
-        convergence_indicators = [self.user_value_function.calculate(obj) for obj in objective_values]
-        return np.min(convergence_indicators), np.mean(convergence_indicators), self.duration
+        convergence_indicators = [self.user_value_function.calculate(obj_val) for obj_val in objective_values]
+        return np.min(convergence_indicators), np.mean(convergence_indicators), self.duration, history
 
 
 if __name__ == '__main__':
