@@ -3,8 +3,13 @@ import numpy as np
 
 
 class Model:
-    def __init__(self):
-        pass
+    def __init__(self, buffer, objectives, verbose):
+        self.buffer_max_size = buffer
+        self.buffer = []
+        self.objectives = objectives
+        self.verbose = verbose
+        self.min_obj = None  # vector with lower bound for each objective
+        self.max_obj = None  # vector with upper bound for each objective
 
     def value_funtion(self, objective_values):
         # TODO

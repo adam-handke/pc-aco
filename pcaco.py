@@ -1,5 +1,6 @@
 import argparse
 import time
+import os
 import numpy as np
 import pandas as pd
 from pymoo.problems import get_problem
@@ -82,16 +83,19 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         else:
             raise ValueError(f'unknown user value function: {user_value_function}')
 
+        if isinstance(verbose, bool):
+            self.verbose = verbose
+
         if model == 'mdvf':
-            self.model = MostDiscriminatingValueFunction()
+            self.model = MostDiscriminatingValueFunction(self.buffer, self.objectives, self.verbose)
         elif model == 'mscvf':
-            self.model = MinimalSlopeChangeValueFunction()
+            self.model = MinimalSlopeChangeValueFunction(self.buffer, self.objectives, self.verbose)
         elif model == 'msvf':
-            self.model = MaximalSumOfScoresValueFunction()
+            self.model = MaximalSumOfScoresValueFunction(self.buffer, self.objectives, self.verbose)
         elif model == 'ror':
-            self.model = RobustOrdinalRegression()
+            self.model = RobustOrdinalRegression(self.buffer, self.objectives, self.verbose)
         elif model == 'mc':
-            self.model = MonteCarlo()
+            self.model = MonteCarlo(self.buffer, self.objectives, self.verbose)
         else:
             raise ValueError(f'unknown model: {model}')
 
@@ -106,9 +110,6 @@ class PairwiseComparisonsBasedAntColonyOptimization:
 
         if isinstance(draw_plot, bool):
             self.draw_plot = draw_plot
-
-        if isinstance(verbose, bool):
-            self.verbose = verbose
 
         if self.verbose:
             print(f'PC-ACO initialized successfully at {start_time} with parameters:', flush=True)
@@ -168,14 +169,19 @@ class PairwiseComparisonsBasedAntColonyOptimization:
 
     def update_preference_model(self, objective_values):
         # randomly select 2 non-dominated solutions and ask DM for comparison
+        # for the random selection use the first available front with more than 1 solution (counting from the best one)
         non_dominated_fronts = self.nds.do(objective_values)
-        non_dominated_solutions = non_dominated_fronts[0]
-        if len(non_dominated_solutions) > 1:
-            selected_index1, selected_index2 = self.rng.choice(non_dominated_solutions, size=2, replace=False)
+        selected_front = None
+        for front in non_dominated_fronts:
+            if len(front) > 1:
+                selected_front = front
+                break
+        if selected_front is not None:
+            selected_index1, selected_index2 = self.rng.choice(selected_front, size=2, replace=False)
         else:
-            # if there is only 1 solution in the first front, then also use the second front
-            selected_index1 = non_dominated_solutions[0]
-            selected_index2 = self.rng.choice(non_dominated_fronts[1], size=1)[0]
+            # if there is only 1 solution in every front, then use the solutions from the first and second front
+            # they are not non-dominated, but it handles an unlikely theoretically possible edge-case
+            selected_index1, selected_index2 = non_dominated_fronts[0][0], non_dominated_fronts[1][0]
         # calculate user value function based on objective values
         obj1, obj2 = objective_values[selected_index1], objective_values[selected_index2]
         val1 = self.user_value_function.calculate(obj1)
@@ -236,7 +242,13 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             'avg_convergence': np.mean(convergence_indicators),
             'duration': self.duration
         }, index=[0])
-        results_df.to_csv('results/results.csv', mode='a', sep=';', index=False, header=False)
+        csv_file = 'results/results.csv'
+        if os.path.isfile(csv_file):
+            results_df.to_csv(csv_file, mode='a', sep=';', index=False, header=False)
+        else:
+            results_df.to_csv(csv_file, mode='w', sep=';', index=False, header=True)
+        if self.verbose:
+            print(f'Results saved to {csv_file}')
 
     def plot(self, history):
         if self.objectives == 2:
@@ -257,8 +269,11 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             #plt.xticks(np.arange(0, 1.5, 0.1))
             #plt.yticks(np.arange(0, 1.5, 0.1))
             plt.legend(loc='upper right')
-            plt.savefig(f'results/plot_{self.start_time}.png', bbox_inches='tight', pad_inches=0.3)
+            plot_file = f'results/plot_{self.start_time}.png'
+            plt.savefig(plot_file, bbox_inches='tight', pad_inches=0.3)
             plt.close()
+            if self.verbose:
+                print(f'Plot saved to {plot_file}')
         else:
             print('Plotting error - only instances with 2 objectives can be plotted.', flush=True)
 
@@ -270,6 +285,11 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                                       high=np.tile(self.problem.xu, (self.ants, 1)),
                                       size=(self.ants, self.variables))
         objective_values = self.problem.evaluate(population)
+
+        # assign approximate bounds of objective values in preference model (needed for interpolation)
+        self.model.min_obj = np.zeros(self.objectives)
+        self.model.max_obj = np.ceil(np.max(objective_values, axis=0))
+
         history = []
         self.update_preference_model(objective_values)
         self.update_ant_colony(population, objective_values)
@@ -283,8 +303,21 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         for g in range(1, self.generations+1):
             new_population = np.array([self.construct_solution(population) for _ in range(self.ants)])
             new_objective_values = self.problem.evaluate(new_population)
+
+            # check if the objective upper bound is preserved, update if necessary (needed for interpolation)
+            max_obj = np.max(new_objective_values, axis=0)
+            for obj in range(self.objectives):
+                if max_obj[obj] > self.model.max_obj[obj]:
+                    new_upper_bound = np.ceil(max_obj[obj])
+                    if self.verbose:
+                        print(f'Upper bound of objective {obj+1} ({self.model.max_obj[obj]}) exceeded and updated to:',
+                              new_upper_bound)
+                    self.model.max_obj[obj] = new_upper_bound
+
+            # update preference model every 'interval' generations
             if g % self.interval == 0:
                 self.update_preference_model(new_objective_values)
+            # update ant colony parameters every generation
             self.update_ant_colony(new_population, new_objective_values)
 
             population = new_population
