@@ -5,9 +5,9 @@ from user_value_functions import LinearUserValueFunction, ChebycheffUserValueFun
 
 class TestLinearUserValueFunction(TestCase):
     def setUp(self):
-        self.linear2 = LinearUserValueFunction([0.4, 0.6])
-        self.linear3 = LinearUserValueFunction([0.3, 0.45, 0.25])
-        self.linear4 = LinearUserValueFunction([0.3, 0.35, 0.25, 0.1])
+        self.linear2 = LinearUserValueFunction([0.4, 0.6], False)
+        self.linear3 = LinearUserValueFunction([0.3, 0.45, 0.25], False)
+        self.linear4 = LinearUserValueFunction([0.3, 0.35, 0.25, 0.1], False)
 
     def test2(self):
         self.assertAlmostEqual(self.linear2.calculate([0.1, 0.5]), 0.34)
@@ -21,9 +21,9 @@ class TestLinearUserValueFunction(TestCase):
 
 class TestChebycheffUserValueFunction(TestCase):
     def setUp(self):
-        self.chebycheff2 = ChebycheffUserValueFunction([0.4, 0.6])
-        self.chebycheff3 = ChebycheffUserValueFunction([0.3, 0.45, 0.25])
-        self.chebycheff4 = ChebycheffUserValueFunction([0.3, 0.35, 0.25, 0.1])
+        self.chebycheff2 = ChebycheffUserValueFunction([0.4, 0.6], False)
+        self.chebycheff3 = ChebycheffUserValueFunction([0.3, 0.45, 0.25], False)
+        self.chebycheff4 = ChebycheffUserValueFunction([0.3, 0.35, 0.25, 0.1], False)
 
     def test2(self):
         self.assertAlmostEqual(self.chebycheff2.calculate([0.1, 0.5]), 0.3)
