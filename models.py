@@ -46,7 +46,7 @@ class Model:
             # sort 'obj' ascending and 'util' descending
             self.interp_points[obj]['obj'].sort()
             self.interp_points[obj]['util'].sort(reverse=True)
-        print(*self.interp_points, sep='\n')
+        # print(*self.interp_points, sep='\n')
 
     def update(self, compared_pair):
         # compared_pair = pair of vectors of objective values where the 1st is better than the 2nd according to the DM
