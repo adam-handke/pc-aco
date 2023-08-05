@@ -328,6 +328,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                         print(f'Upper bound of objective {obj} ({self.model.worst_obj[obj]}) exceeded and updated:',
                               new_upper_bound)
                     self.model.worst_obj[obj] = new_upper_bound
+                    self.model.interp_points[obj]['obj'][-1] = new_upper_bound
 
             # update preference model every 'interval' generations
             if g % self.interval == 0:
