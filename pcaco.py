@@ -15,7 +15,8 @@ from models import MostDiscriminatingValueFunction, MinimalSlopeChangeValueFunct
 class PairwiseComparisonsBasedAntColonyOptimization:
     def __init__(self, generations=100, ants=100, q=0.1, xi=0.5, interval=10, buffer=50, problem='zdt1', variables=None,
                  objectives=None, user_value_function='linear', extreme_objective=False, model='mdvf',
-                 with_nondominance_ranking=True, seed=42, save_csv=True, draw_plot=True, verbose=False):
+                 with_nondominance_ranking=True, seed=42, save_csv=True, draw_plot=True,
+                 plotting_checkpoints=(10, 30, 60, 100), verbose=False):
         start_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
         # handling given parameters
         if isinstance(generations, int) and generations > 0:
@@ -101,15 +102,28 @@ class PairwiseComparisonsBasedAntColonyOptimization:
 
         if isinstance(with_nondominance_ranking, bool):
             self.with_nondominance_ranking = with_nondominance_ranking
+        else:
+            raise ValueError(f'wrong `with_nondominance_ranking` parameter: {with_nondominance_ranking}')
 
         if isinstance(seed, int):
             self.seed = seed
+        else:
+            raise ValueError(f'wrong `seed` parameter: {seed}')
 
         if isinstance(save_csv, bool):
             self.save_csv = save_csv
+        else:
+            raise ValueError(f'wrong `save_csv` parameter: {save_csv}')
 
         if isinstance(draw_plot, bool):
             self.draw_plot = draw_plot
+        else:
+            raise ValueError(f'wrong `draw_plot` parameter: {draw_plot}')
+
+        if len(plotting_checkpoints) == 4:
+            self.plotting_checkpoints = plotting_checkpoints
+        else:
+            raise ValueError(f'wrong number of plotting checkpoints: {len(plotting_checkpoints)}')
 
         if self.verbose:
             print(f'PC-ACO initialized successfully at {start_time} with parameters:', flush=True)
@@ -238,7 +252,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             'extreme_objective': self.user_value_function.extreme_objective,
             'model': str(self.model),
             'with_nondominance_ranking': self.with_nondominance_ranking,
-            'min_convergence': np.min(convergence_indicators),
+            'best_convergence': np.min(convergence_indicators),
             'avg_convergence': np.mean(convergence_indicators),
             'duration': self.duration
         }, index=[0])
@@ -253,9 +267,10 @@ class PairwiseComparisonsBasedAntColonyOptimization:
     def plot(self, history):
         if self.objectives == 2:
             plt.figure(figsize=(10, 10))
-            color_dict = {10: 'tab:green', 30: 'tab:blue', 60: 'tab:purple', 100: 'tab:red'}
+            color_dict = {gen: color for gen, color in zip(self.plotting_checkpoints,
+                                                           ['tab:green', 'tab:blue', 'tab:purple', 'tab:red'])}
 
-            for gen_to_plot in [10, 30, 60, 100]:
+            for gen_to_plot in self.plotting_checkpoints:
                 plt.scatter(history[gen_to_plot-1][:, 0], history[gen_to_plot-1][:, 1], c=color_dict[gen_to_plot],
                             label=f'PC-ACO-{str(self.model)} after {gen_to_plot} gen.', alpha=0.8, marker='X')
             try:
@@ -296,7 +311,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         if self.verbose:
             convergence_indicators = [self.user_value_function.calculate(obj_val) for obj_val in objective_values]
             print(f'Finished generation 0 after {np.round(time.perf_counter() - start, 3)}s from start '
-                  f'(min={np.round(np.min(convergence_indicators), 3)}; '
+                  f'(best={np.round(np.min(convergence_indicators), 3)}; '
                   f'avg={np.round(np.mean(convergence_indicators), 3)})', flush=True)
 
         # main ACO loop
@@ -327,7 +342,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             if self.verbose:
                 convergence_indicators = [self.user_value_function.calculate(obj_val) for obj_val in objective_values]
                 print(f'Finished generation {g} after {np.round(time.perf_counter() - start, 3)}s from start '
-                      f'(min={np.round(np.min(convergence_indicators), 3)}; '
+                      f'(best={np.round(np.min(convergence_indicators), 3)}; '
                       f'avg={np.round(np.mean(convergence_indicators), 3)})', flush=True)
 
         stop = time.perf_counter()
@@ -339,7 +354,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         if self.verbose:
             print(f'PC-ACO completed optimization successfully in {np.round(self.duration, 3)}s')
 
-        # return min, avg, duration
+        # return best, avg, duration, history
         convergence_indicators = [self.user_value_function.calculate(obj_val) for obj_val in objective_values]
         return np.min(convergence_indicators), np.mean(convergence_indicators), self.duration, history
 
