@@ -73,16 +73,21 @@ class MostDiscriminatingValueFunction(Model):
                     for pair2 in range(len(self.buffer)):
                         for p1 in range(2):  # which solution in pair1
                             for p2 in range(2):  # which solution in pair2
-                                if ((pair1 != pair2 or p1 != p2)
-                                        and self.buffer[pair1][p1][obj] < self.buffer[pair2][p2][obj]):
-                                    lp += ((u_better[pair1][obj] if p1 == 0 else u_worse[pair1][obj])
-                                           >= (u_better[pair2][obj] if p2 == 0 else u_worse[pair2][obj]))
+                                if pair1 != pair2 or p1 != p2:
+                                    if self.buffer[pair1][p1][obj] < self.buffer[pair2][p2][obj]:
+                                        lp += ((u_better[pair1][obj] if p1 == 0 else u_worse[pair1][obj])
+                                               >= (u_better[pair2][obj] if p2 == 0 else u_worse[pair2][obj]))
+                                    elif self.buffer[pair1][p1][obj] == self.buffer[pair2][p2][obj]:
+                                        # making sure that the same objective value always has the same utility
+                                        lp += ((u_better[pair1][obj] if p1 == 0 else u_worse[pair1][obj])
+                                               == (u_better[pair2][obj] if p2 == 0 else u_worse[pair2][obj]))
             for obj in range(self.objectives):
                 for pair in range(len(self.buffer)):
                     lp += u_better[pair][obj] >= u_worst[obj]
                     lp += u_worse[pair][obj] >= u_worst[obj]
                     lp += u_best[obj] >= u_better[pair][obj]
                     lp += u_best[obj] >= u_worse[pair][obj]
+                lp += u_best[obj] >= u_worst[obj]
 
             # pairwise preference constraints
             for pair in range(len(self.buffer)):
@@ -101,11 +106,11 @@ class MostDiscriminatingValueFunction(Model):
             if epsilon.varValue <= 0:
                 if self.verbose:
                     print(f'LP solved but the preferences are incompatible (epsilon={epsilon.varValue}) '
-                          f'- discarding the oldest pair ({len(self.buffer) - 1} will remain)')
+                          f'- discarding the oldest pair ({len(self.buffer) - 1} will remain)', flush=True)
                 self.buffer.pop(0)
             else:
                 if self.verbose:
-                    print(f'LP solved and the preferences are compatible (epsilon={epsilon.varValue})')
+                    print(f'LP solved and the preferences are compatible (epsilon={epsilon.varValue})', flush=True)
                 # translating LP results to interp_points
                 self.interp_points = [{'obj': [self.best_obj[obj], self.worst_obj[obj]],
                                        'util': [u_best[obj].varValue, u_worst[obj].varValue]}
