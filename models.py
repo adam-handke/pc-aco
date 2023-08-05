@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 from pulp import LpProblem, LpVariable, LpMaximize, PULP_CBC_CMD
 
@@ -146,7 +147,7 @@ class MostDiscriminatingValueFunction(Model):
                           f'- discarding the oldest pair ({len(self.buffer) - 1} will remain)', flush=True)
                 self.buffer.pop(0)
                 if len(self.buffer) == 0:
-                    raise RuntimeWarning('Unable to perform model update - no pairs left in the buffer!')
+                    warnings.warn('Unable to perform model update - no pairs left in the buffer!')
             else:
                 if self.verbose:
                     print(f'LP solved and the preferences are compatible (epsilon={epsilon.varValue})', flush=True)
@@ -180,7 +181,7 @@ class MaximalSumOfScoresValueFunction(Model):
                           f'- discarding the oldest pair ({len(self.buffer) - 1} will remain)', flush=True)
                 self.buffer.pop(0)
                 if len(self.buffer) == 0:
-                    raise RuntimeWarning('Unable to perform model update - no pairs left in the buffer!')
+                    warnings.warn('Unable to perform model update - no pairs left in the buffer!')
             else:
                 if self.verbose and self.const_eps is None:
                     print(f'Eps-LP solved and the preferences are compatible (epsilon={eps}); '

@@ -13,7 +13,7 @@ from models import MostDiscriminatingValueFunction, MinimalSlopeChangeValueFunct
 
 
 class PairwiseComparisonsBasedAntColonyOptimization:
-    def __init__(self, generations=100, ants=100, q=0.1, xi=0.5, interval=10, buffer=50, problem='zdt1', variables=None,
+    def __init__(self, generations=100, ants=100, q=0.1, xi=0.5, interval=10, buffer=30, problem='zdt1', variables=None,
                  objectives=None, user_value_function='linear', extreme_objective=False, model='mdvf',
                  with_nondominance_ranking=True, seed=42, save_csv=True, draw_plot=True,
                  plotting_checkpoints=(10, 30, 60, 100), verbose=False):
@@ -129,7 +129,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             print(f'PC-ACO initialized successfully at {start_time} with parameters:', flush=True)
             for key, value in self.__dict__.items():
                 if isinstance(value, int) or isinstance(value, str) or isinstance(value, bool) \
-                        or isinstance(value, float):
+                        or isinstance(value, float) or isinstance(value, list):
                     print(f'\t{key}:'.ljust(25) + f'\t{value}', flush=True)
                 else:
                     print(f'\t{key}:'.ljust(25) + f'\t{value.__class__.__name__}', flush=True)
@@ -369,7 +369,7 @@ if __name__ == '__main__':
     parser.add_argument('-xi', type=float, default=0.5, help='convergence parameter of ACO')
     parser.add_argument('-i', '--interval', type=int, default=10,
                         help='intervals between asking the user for a pairwise comparison; interval<generations')
-    parser.add_argument('-b', '--buffer', type=int, default=50,
+    parser.add_argument('-b', '--buffer', type=int, default=30,
                         help='max number of stored pairwise comparisons')
     parser.add_argument('-p', '--problem', default='zdt1',
                         choices=['dtlz1', 'dtlz2', 'dtlz3', 'dtlz4', 'dtlz5', 'dtlz6', 'dtlz7',
