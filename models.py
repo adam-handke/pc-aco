@@ -1,3 +1,4 @@
+import time
 import warnings
 import numpy as np
 from pulp import LpProblem, LpVariable, LpMaximize, LpMinimize, PULP_CBC_CMD
@@ -411,7 +412,7 @@ class MonteCarlo(Model):
             for pair in range(len(self.buffer)):
                 var_names.extend([f'uw{obj}_{pair}' for obj in range(self.objectives)])
 
-            bounds = [[-0.0001, 1.0001] for _ in range(len(var_names))]
+            bounds = [[-0.0000000001, 1.0000000001] for _ in range(len(var_names))]
             constr = Constraints(var_names)
 
             # pairwise preference constraints (no epsilon needed)
@@ -469,7 +470,9 @@ class MonteCarlo(Model):
                 har = HitAndRun(constraint=constr, bounding_box=bounds, direction_sampling=DirectionSampling.CDHR,
                                 shrinking=Shrinking.SHRINKING, init_point=InitPoint.SMT)
                 num_samples = 10
-                for i in range(num_samples):
+                time_limit = 10  # 10 seconds time limit
+                start = time.perf_counter()
+                while len(samples) < num_samples and time.perf_counter() - start < time_limit:
                     sample, rejections = har.next_sample()
                     samples.append(sample)
 
