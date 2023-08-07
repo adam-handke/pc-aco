@@ -116,6 +116,10 @@ class Model:
             lp += u_worst[obj] == 0.0
         return lp
 
+    def update_upper_bound_on_objective(self, obj, new_upper_bound):
+        self.worst_obj[obj] = new_upper_bound
+        self.interp_points[obj]['obj'][-1] = new_upper_bound
+
     def update(self, compared_pair):
         # compared_pair = pair of vectors of objective values where the 1st is better than the 2nd according to the DM
         # update procedure must be implemented differently for every model
@@ -481,7 +485,7 @@ class MonteCarlo(Model):
                     print(f'Sampled and saved {len(samples)} value functions', flush=True)
                 break
             except Exception as e:
-                warnings.warn(e)
+                warnings.warn(str(e))
                 if self.verbose:
                     print(f'Unable to sample compatible value functions '
                           f'- discarding the oldest pair ({len(self.buffer) - 1} will remain)', flush=True)
@@ -511,3 +515,8 @@ class MonteCarlo(Model):
         # average over all saved value functions
         return np.mean([np.sum([np.interp(obj_val[obj], vf[obj]['obj'], vf[obj]['util'])
                                 for obj in range(self.objectives)]) for vf in self.interp_points])
+
+    def update_upper_bound_on_objective(self, obj, new_upper_bound):
+        self.worst_obj[obj] = new_upper_bound
+        for vf in range(len(self.interp_points)):
+            self.interp_points[vf][obj]['obj'][-1] = new_upper_bound

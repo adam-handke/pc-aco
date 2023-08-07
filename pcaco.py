@@ -329,8 +329,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                     if self.verbose:
                         print(f'Upper bound of objective {obj} ({self.model.worst_obj[obj]}) exceeded and updated:',
                               new_upper_bound)
-                    self.model.worst_obj[obj] = new_upper_bound
-                    self.model.interp_points[obj]['obj'][-1] = new_upper_bound
+                    self.model.update_upper_bound_on_objective(obj, new_upper_bound)
 
             # omit updates in the last generation as aco and model are no longer needed
             if g != self.generations:
