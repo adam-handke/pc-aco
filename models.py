@@ -1,10 +1,13 @@
 import warnings
 import numpy as np
 from pulp import LpProblem, LpVariable, LpMaximize, LpMinimize, PULP_CBC_CMD
+from anyHR.constraint.Constraint import Constraints
+from anyHR.hit_and_run.hit_and_run import HitAndRun, DirectionSampling, Shrinking, InitPoint
 
 
 class Model:
-    def __init__(self, buffer_max_size, objectives, verbose, buffer=[], best_obj=None, worst_obj=None, const_eps=None):
+    def __init__(self, buffer_max_size, objectives, verbose, buffer=[], best_obj=None, worst_obj=None, const_eps=None,
+                 seed=42):  # seed only needed for Monte Carlo
         # buffer is implemented based on NEMO-0 approach
         # (J. Branke et al., Learning Value Functions in Interactive Evolutionary Multiobjective Optimization, 2015)
         # it is a list of pairs of vectors of objective values where the 1st is better than the 2nd according to the DM
@@ -19,9 +22,11 @@ class Model:
         if const_eps is not None and const_eps <= 0.0:
             raise ValueError(f'wrong constant epsilon: {const_eps}; it should be a small positive float')
         self.const_eps = const_eps  # constant epsilon, only active when value given on initialization
+        self.seed = seed
 
         # list of interpolation points dicts for every objective; for every objective (obj) should have the format of:
         # {'obj': [self.best_obj[obj], ..., self.worst_obj[obj]], 'util': [???, ..., 0.0]}
+        # for Monte Carlo it's a list of lists of dicts (many value functions)
         self.interp_points = [{'obj': [], 'util': []} for _ in range(self.objectives)]
 
     def value_funtion(self, obj_val):
@@ -35,19 +40,19 @@ class Model:
 
     def translate_interpolation_points(self, u_best, u_worst, u_better, u_worse):
         # translating LP results to interp_points
-        self.interp_points = [{'obj': [self.best_obj[obj], self.worst_obj[obj]],
-                               'util': [u_best[obj].varValue, u_worst[obj].varValue]}
-                              for obj in range(self.objectives)]
+        interp_points = [{'obj': [self.best_obj[obj], self.worst_obj[obj]],
+                          'util': [u_best[obj].varValue, u_worst[obj].varValue]} for obj in range(self.objectives)]
         for obj in range(self.objectives):
             for pair in range(len(self.buffer)):
                 for p in range(2):
-                    self.interp_points[obj]['obj'].append(self.buffer[pair][p][obj])
-                    self.interp_points[obj]['util'].append(u_better[pair][obj].varValue
-                                                           if p == 0 else u_worse[pair][obj].varValue)
+                    interp_points[obj]['obj'].append(self.buffer[pair][p][obj])
+                    interp_points[obj]['util'].append(u_better[pair][obj].varValue
+                                                      if p == 0 else u_worse[pair][obj].varValue)
             # sort 'obj' ascending and 'util' descending
-            self.interp_points[obj]['obj'].sort()
-            self.interp_points[obj]['util'].sort(reverse=True)
-        # print(*self.interp_points, sep='\n')
+            interp_points[obj]['obj'].sort()
+            interp_points[obj]['util'].sort(reverse=True)
+        # print(*interp_points, sep='\n')
+        return interp_points
 
     def define_utilities(self):
         u_better = [[LpVariable(f'ub{obj}_{pair}') for obj in range(self.objectives)]
@@ -57,6 +62,12 @@ class Model:
         u_best = [LpVariable(f'ubest{obj}') for obj in range(self.objectives)]
         u_worst = [LpVariable(f'uworst{obj}') for obj in range(self.objectives)]
         return u_better, u_worse, u_best, u_worst
+
+    def add_pairwise_preference_constraints(self, lp, u_better, u_worse, epsilon):
+        for pair in range(len(self.buffer)):
+            lp += (sum([u_better[pair][obj] for obj in range(self.objectives)])
+                   - sum([u_worse[pair][obj] for obj in range(self.objectives)])) >= epsilon
+        return lp
 
     def add_monotonicity_constraints(self, lp, u_best, u_worst, u_better, u_worse):
         for obj in range(self.objectives):
@@ -134,12 +145,8 @@ class MostDiscriminatingValueFunction(Model):
 
         # maximized variable
         lp += epsilon
-
         # pairwise preference constraints
-        for pair in range(len(self.buffer)):
-            lp += (sum([u_better[pair][obj] for obj in range(self.objectives)])
-                   - sum([u_worse[pair][obj] for obj in range(self.objectives)])) >= epsilon
-
+        lp = self.add_pairwise_preference_constraints(lp, u_better, u_worse, epsilon)
         # monotonicity constraints
         lp = self.add_monotonicity_constraints(lp, u_best, u_worst, u_better, u_worse)
         # normalization constraints
@@ -162,7 +169,7 @@ class MostDiscriminatingValueFunction(Model):
             else:
                 if self.verbose:
                     print(f'LP solved and the preferences are compatible (epsilon={np.round(epsilon.varValue, 5)})', flush=True)
-                self.translate_interpolation_points(u_best, u_worst, u_better, u_worse)
+                self.interp_points = self.translate_interpolation_points(u_best, u_worst, u_better, u_worse)
                 break
 
 
@@ -227,10 +234,7 @@ class MinimalSlopeChangeValueFunction(Model):
                                    - ((obj_util_list[k][1] - obj_util_list[k-1][1])
                                       / (obj_util_list[k][0] - obj_util_list[k-1][0]))) <= rho
                 # pairwise preference constraints
-                for pair in range(len(self.buffer)):
-                    lp += (sum([u_better[pair][obj] for obj in range(self.objectives)])
-                           - sum([u_worse[pair][obj] for obj in range(self.objectives)])) >= eps
-
+                lp = self.add_pairwise_preference_constraints(lp, u_better, u_worse, eps)
                 # monotonicity constraints
                 lp = self.add_monotonicity_constraints(lp, u_best, u_worst, u_better, u_worse)
                 # normalization constraints
@@ -239,7 +243,7 @@ class MinimalSlopeChangeValueFunction(Model):
                 lp.solve(PULP_CBC_CMD(msg=False))
                 if self.verbose:
                     print(f'Main LP solved (rho={np.round(rho.varValue, 5)})', flush=True)
-                self.translate_interpolation_points(u_best, u_worst, u_better, u_worse)
+                self.interp_points = self.translate_interpolation_points(u_best, u_worst, u_better, u_worse)
                 break
 
 
@@ -284,10 +288,7 @@ class MaximalSumOfScoresValueFunction(Model):
                 # + u_best[0] + 0.5 * (u_worse[0][1] + u_worst[1]) + u_best[2] + 0.5 * (u_better[0][3] + u_worst[3]))
 
                 # pairwise preference constraints
-                for pair in range(len(self.buffer)):
-                    lp += (sum([u_better[pair][obj] for obj in range(self.objectives)])
-                           - sum([u_worse[pair][obj] for obj in range(self.objectives)])) >= eps
-
+                lp = self.add_pairwise_preference_constraints(lp, u_better, u_worse, eps)
                 # monotonicity constraints
                 lp = self.add_monotonicity_constraints(lp, u_best, u_worst, u_better, u_worse)
                 # normalization constraints
@@ -296,7 +297,7 @@ class MaximalSumOfScoresValueFunction(Model):
                 lp.solve(PULP_CBC_CMD(msg=False))
                 if self.verbose:
                     print(f'Main LP solved', flush=True)
-                self.translate_interpolation_points(u_best, u_worst, u_better, u_worse)
+                self.interp_points = self.translate_interpolation_points(u_best, u_worst, u_better, u_worse)
                 break
 
 
@@ -339,10 +340,7 @@ class RobustOrdinalRegression(Model):
                 np_lp += sum(np_u_better[-1]) - sum(np_u_worse[-1])
 
                 # pairwise preference constraints
-                for pair in range(len(self.buffer)):
-                    np_lp += (sum([np_u_better[pair][obj] for obj in range(self.objectives)])
-                              - sum([np_u_worse[pair][obj] for obj in range(self.objectives)])) >= eps
-
+                np_lp = self.add_pairwise_preference_constraints(np_lp, np_u_better, np_u_worse, eps)
                 # monotonicity constraints
                 np_lp = self.add_monotonicity_constraints(np_lp, np_u_best, np_u_worst, np_u_better, np_u_worse)
                 # normalization constraints
@@ -364,9 +362,7 @@ class RobustOrdinalRegression(Model):
                     lp += delta
 
                     # pairwise necessary preference constraints (epsilon calculated earlier)
-                    for pair in range(len(self.buffer)):
-                        lp += (sum([u_better[pair][obj] for obj in range(self.objectives)])
-                               - sum([u_worse[pair][obj] for obj in range(self.objectives)])) >= eps
+                    lp = self.add_pairwise_preference_constraints(lp, u_better, u_worse, eps)
 
                     # no necessary preference constraints (delta)
                     for pair1 in range(len(self.buffer)):
@@ -387,7 +383,7 @@ class RobustOrdinalRegression(Model):
                     lp.solve(PULP_CBC_CMD(msg=False))
                     if self.verbose:
                         print(f'Main LP solved (delta={np.round(delta.varValue, 5)})', flush=True)
-                    self.translate_interpolation_points(u_best, u_worst, u_better, u_worse)
+                    self.interp_points = self.translate_interpolation_points(u_best, u_worst, u_better, u_worse)
                     break
                 else:
                     warnings.warn(f'Preference is not necessary - diff={np.round(diff, 5)} < 0; skipping model update')
@@ -397,3 +393,118 @@ class RobustOrdinalRegression(Model):
 class MonteCarlo(Model):
     def __str__(self):
         return 'MC'
+
+    def update(self, compared_pair):
+        super().update(compared_pair)
+        while len(self.buffer) > 0:
+            # custom three-step Monte Carlo process done using anyHR package
+            # 1) define variables (utility values) and their constraints (preference, monotonicity, normalization)
+            # 2) sample compatible value functions using hit-and-run method
+            # 3) save all sampled value functions and later average the utilities over all of them
+            np.random.seed(self.seed + len(self.buffer))
+            samples = []
+            var_names = []
+            var_names.extend([f'ubest{obj}' for obj in range(self.objectives)])
+            var_names.extend([f'uworst{obj}' for obj in range(self.objectives)])
+            for pair in range(len(self.buffer)):
+                var_names.extend([f'ub{obj}_{pair}' for obj in range(self.objectives)])
+            for pair in range(len(self.buffer)):
+                var_names.extend([f'uw{obj}_{pair}' for obj in range(self.objectives)])
+
+            bounds = [[-0.0001, 1.0001] for _ in range(len(var_names))]
+            constr = Constraints(var_names)
+
+            # pairwise preference constraints (no epsilon needed)
+            for pair in range(len(self.buffer)):
+                better_util = '+'.join([f'ub{obj}_{pair}' for obj in range(self.objectives)])
+                worse_util = '+'.join([f'uw{obj}_{pair}' for obj in range(self.objectives)])
+                constr.add_constraint(better_util + ' > ' + worse_util)
+
+            # monotonicity constraints
+            for obj in range(self.objectives):
+                for pair1 in range(len(self.buffer)):
+                    for pair2 in range(len(self.buffer)):
+                        for p1 in range(2):  # which solution in pair1
+                            for p2 in range(2):  # which solution in pair2
+                                if pair1 != pair2 or p1 != p2:
+                                    if self.buffer[pair1][p1][obj] < self.buffer[pair2][p2][obj]:
+                                        constr.add_constraint((f'ub{obj}_{pair1}' if p1 == 0 else f'uw{obj}_{pair1}')
+                                                              + ' >= '
+                                                              + (f'ub{obj}_{pair2}' if p2 == 0 else f'uw{obj}_{pair2}'))
+                                    elif self.buffer[pair1][p1][obj] == self.buffer[pair2][p2][obj]:
+                                        # making sure that the same objective value always has the same utility
+                                        constr.add_constraint((f'ub{obj}_{pair1}' if p1 == 0 else f'uw{obj}_{pair1}')
+                                                              + ' == '
+                                                              + (f'ub{obj}_{pair2}' if p2 == 0 else f'uw{obj}_{pair2}'))
+            for obj in range(self.objectives):
+                for pair in range(len(self.buffer)):
+                    if self.buffer[pair][0][obj] < self.worst_obj[obj]:
+                        constr.add_constraint(f'ub{obj}_{pair} >= uworst{obj}')
+                    elif self.buffer[pair][0][obj] == self.worst_obj[obj]:
+                        constr.add_constraint(f'ub{obj}_{pair} == uworst{obj}')
+
+                    if self.buffer[pair][1][obj] < self.worst_obj[obj]:
+                        constr.add_constraint(f'uw{obj}_{pair} >= uworst{obj}')
+                    elif self.buffer[pair][1][obj] == self.worst_obj[obj]:
+                        constr.add_constraint(f'uw{obj}_{pair} == uworst{obj}')
+
+                    if self.best_obj[obj] < self.buffer[pair][0][obj]:
+                        constr.add_constraint(f'ubest{obj} >= ub{obj}_{pair}')
+                    elif self.best_obj[obj] == self.buffer[pair][0][obj]:
+                        constr.add_constraint(f'ubest{obj} == ub{obj}_{pair}')
+
+                    if self.best_obj[obj] < self.buffer[pair][1][obj]:
+                        constr.add_constraint(f'ubest{obj} >= uw{obj}_{pair}')
+                    elif self.best_obj[obj] == self.buffer[pair][1][obj]:
+                        constr.add_constraint(f'ubest{obj} == uw{obj}_{pair}')
+                constr.add_constraint(f'ubest{obj} >= uworst{obj}')
+
+            # normalization constraints (lower bound)
+            constr.add_constraint('+'.join([f'ubest{obj}' for obj in range(self.objectives)]) + ' == 1.0')
+            # normalization constraints (upper bound)
+            for obj in range(self.objectives):
+                constr.add_constraint(f'uworst{obj} == 0.0')
+
+            try:
+                har = HitAndRun(constraint=constr, bounding_box=bounds, direction_sampling=DirectionSampling.CDHR,
+                                shrinking=Shrinking.SHRINKING, init_point=InitPoint.SMT)
+                num_samples = 10
+                for i in range(num_samples):
+                    sample, rejections = har.next_sample()
+                    samples.append(sample)
+
+                self.interp_points = [self.translate_interpolation_points_from_flat(flat_input=s) for s in samples]
+                if self.verbose:
+                    print(f'Sampled and saved {len(samples)} value functions', flush=True)
+                break
+            except Exception as e:
+                warnings.warn(e)
+                if self.verbose:
+                    print(f'Unable to sample compatible value functions '
+                          f'- discarding the oldest pair ({len(self.buffer) - 1} will remain)', flush=True)
+                self.buffer.pop(0)
+                if len(self.buffer) == 0:
+                    warnings.warn('Unable to perform model update - no pairs left in the buffer!')
+
+    def translate_interpolation_points_from_flat(self, flat_input):
+        # translating sampling results to interp_points
+        interp_points = [{'obj': [self.best_obj[obj], self.worst_obj[obj]],
+                          'util': [flat_input[0 + obj], flat_input[self.objectives + obj]]}
+                         for obj in range(self.objectives)]
+        for obj in range(self.objectives):
+            for pair in range(len(self.buffer)):
+                for p in range(2):
+                    interp_points[obj]['obj'].append(self.buffer[pair][p][obj])
+                    interp_points[obj]['util'].append(flat_input[(2 + pair) * self.objectives + obj]
+                                                      if p == 0 else flat_input[(2 + len(self.buffer) + pair)
+                                                                                * self.objectives + obj])
+            # sort 'obj' ascending and 'util' descending
+            interp_points[obj]['obj'].sort()
+            interp_points[obj]['util'].sort(reverse=True)
+        # print(*interp_points, sep='\n')
+        return interp_points
+
+    def value_funtion(self, obj_val):
+        # average over all saved value functions
+        return np.mean([np.sum([np.interp(obj_val[obj], vf[obj]['obj'], vf[obj]['util'])
+                                for obj in range(self.objectives)]) for vf in self.interp_points])

@@ -87,6 +87,11 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         if isinstance(verbose, bool):
             self.verbose = verbose
 
+        if isinstance(seed, int):
+            self.seed = seed
+        else:
+            raise ValueError(f'wrong `seed` parameter: {seed}')
+
         if model == 'mdvf':
             self.model = MostDiscriminatingValueFunction(self.buffer, self.objectives, self.verbose)
         elif model == 'mscvf':
@@ -96,7 +101,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         elif model == 'ror':
             self.model = RobustOrdinalRegression(self.buffer, self.objectives, self.verbose)
         elif model == 'mc':
-            self.model = MonteCarlo(self.buffer, self.objectives, self.verbose)
+            self.model = MonteCarlo(self.buffer, self.objectives, self.verbose, seed=self.seed)
         else:
             raise ValueError(f'unknown model: {model}')
 
@@ -104,11 +109,6 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             self.with_nondominance_ranking = with_nondominance_ranking
         else:
             raise ValueError(f'wrong `with_nondominance_ranking` parameter: {with_nondominance_ranking}')
-
-        if isinstance(seed, int):
-            self.seed = seed
-        else:
-            raise ValueError(f'wrong `seed` parameter: {seed}')
 
         if isinstance(save_csv, bool):
             self.save_csv = save_csv
@@ -330,11 +330,13 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                     self.model.worst_obj[obj] = new_upper_bound
                     self.model.interp_points[obj]['obj'][-1] = new_upper_bound
 
-            # update preference model every 'interval' generations
-            if g % self.interval == 0:
-                self.update_preference_model(new_objective_values)
-            # update ant colony parameters every generation
-            self.update_ant_colony(new_population, new_objective_values)
+            # omit updates in the last generation as aco and model are no longer needed
+            if g != self.generations:
+                # update preference model every 'interval' generations
+                if g % self.interval == 0:
+                    self.update_preference_model(new_objective_values)
+                # update ant colony parameters every generation
+                self.update_ant_colony(new_population, new_objective_values)
 
             population = new_population
             objective_values = new_objective_values
