@@ -269,10 +269,12 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             plt.figure(figsize=(10, 10))
             color_dict = {gen: color for gen, color in zip(self.plotting_checkpoints,
                                                            ['tab:green', 'tab:blue', 'tab:purple', 'tab:red'])}
+            marker_dict = {gen: shape for gen, shape in zip(self.plotting_checkpoints, ['^', 's', 'p', 'o'])}
 
             for gen_to_plot in self.plotting_checkpoints:
                 plt.scatter(history[gen_to_plot-1][:, 0], history[gen_to_plot-1][:, 1], c=color_dict[gen_to_plot],
-                            label=f'PC-ACO-{str(self.model)} after {gen_to_plot} gen.', alpha=0.8, marker='X')
+                            label=f'PC-ACO-{str(self.model)} after {gen_to_plot} gen.', alpha=0.8,
+                            marker=marker_dict[gen_to_plot])
             try:
                 pareto_front = self.problem.pareto_front()
                 plt.scatter(pareto_front[:, 0], pareto_front[:, 1], edgecolors='dimgrey', facecolors='none',
