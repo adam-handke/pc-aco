@@ -7,8 +7,7 @@ from anyHR.hit_and_run.hit_and_run import HitAndRun, DirectionSampling, Shrinkin
 
 
 class Model:
-    def __init__(self, buffer_max_size, objectives, verbose, buffer=[], best_obj=None, worst_obj=None, const_eps=None,
-                 seed=42):  # seed only needed for Monte Carlo
+    def __init__(self, buffer_max_size, objectives, verbose, buffer=[], best_obj=None, worst_obj=None, const_eps=None):
         # buffer is implemented based on NEMO-0 approach
         # (J. Branke et al., Learning Value Functions in Interactive Evolutionary Multiobjective Optimization, 2015)
         # it is a list of pairs of vectors of objective values where the 1st is better than the 2nd according to the DM
@@ -23,7 +22,6 @@ class Model:
         if const_eps is not None and const_eps <= 0.0:
             raise ValueError(f'wrong constant epsilon: {const_eps}; it should be a small positive float')
         self.const_eps = const_eps  # constant epsilon, only active when value given on initialization
-        self.seed = seed
 
         # list of interpolation points dicts for every objective; for every objective (obj) should have the format of:
         # {'obj': [self.best_obj[obj], ..., self.worst_obj[obj]], 'util': [???, ..., 0.0]}
@@ -406,7 +404,6 @@ class MonteCarlo(Model):
             # 1) define variables (utility values) and their constraints (preference, monotonicity, normalization)
             # 2) sample compatible value functions using hit-and-run method
             # 3) save all sampled value functions and later average the utilities over all of them
-            np.random.seed(self.seed + len(self.buffer))
             samples = []
             var_names = []
             var_names.extend([f'ubest{obj}' for obj in range(self.objectives)])

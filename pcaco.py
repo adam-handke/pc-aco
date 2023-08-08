@@ -1,6 +1,7 @@
 import argparse
 import time
 import os
+import random
 import numpy as np
 import pandas as pd
 from pymoo.problems import get_problem
@@ -16,7 +17,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
     def __init__(self, generations=100, ants=100, q=0.1, xi=0.5, interval=10, buffer=30, problem='zdt1', variables=None,
                  objectives=None, user_value_function='linear', extreme_objective=False, model='mdvf',
                  with_nondominance_ranking=True, seed=42, save_csv=True, draw_plot=True,
-                 plotting_checkpoints=(10, 30, 60, 100), verbose=False):
+                 plotting_checkpoints=(10, 33, 66, 100), plotting_ticks=None, verbose=False):
         start_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
         # handling given parameters
         if isinstance(generations, int) and generations > 0:
@@ -56,7 +57,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             else:
                 raise ValueError(f'wrong number of variables: {variables}')
 
-            if isinstance(objectives, int) and 1 < objectives < 5:
+            if isinstance(objectives, int) and 1 < objectives < 6:
                 self.objectives = objectives
             else:
                 raise ValueError(f'wrong number of objectives: {objectives}')
@@ -69,28 +70,26 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         else:
             raise ValueError(f'unsupported problem type: {problem}')
 
-        # weights for cases with 2 or 4 objectives taken from 2014 paper by Branke, Greco, Slowinski, Zielniewicz
-        weights_dict = {'regular': {2: [0.6, 0.4], 3: [0.4, 0.25, 0.35], 4: [0.3, 0.15, 0.2, 0.35]},
-                        'extreme': {2: [0.85, 0.15], 3: [0.7, 0.1, 0.2], 4: [0.65, 0.1, 0.15, 0.1]}}
+        # weights for cases with 2 or 4 objectives taken from 2014 paper:
+        # J. Branke et al., Learning Value Functions in Interactive Evolutionary Multiobjective Optimization, 2015
+        weights_dict = {'regular': {2: [0.6, 0.4], 3: [0.4, 0.25, 0.35], 4: [0.3, 0.15, 0.2, 0.35], 5: [0.25, 0.15, 0.2, 0.3, 0.1]},
+                        'extreme': {2: [0.85, 0.15], 3: [0.7, 0.1, 0.2], 4: [0.65, 0.1, 0.15, 0.1]}, 5: [0.6, 0.1, 0.15, 0.1, 0.05]}
         if isinstance(extreme_objective, bool) and extreme_objective:
             weights = weights_dict['extreme'][self.objectives]
+            self.extreme_objective = extreme_objective
         else:
             weights = weights_dict['regular'][self.objectives]
+            self.extreme_objective = extreme_objective
 
         if user_value_function == 'linear':
-            self.user_value_function = LinearUserValueFunction(weights, extreme_objective)
+            self.user_value_function = LinearUserValueFunction(weights)
         elif user_value_function == 'chebycheff':
-            self.user_value_function = ChebycheffUserValueFunction(weights, extreme_objective)
+            self.user_value_function = ChebycheffUserValueFunction(weights)
         else:
             raise ValueError(f'unknown user value function: {user_value_function}')
 
         if isinstance(verbose, bool):
             self.verbose = verbose
-
-        if isinstance(seed, int):
-            self.seed = seed
-        else:
-            raise ValueError(f'wrong `seed` parameter: {seed}')
 
         if model == 'mdvf':
             self.model = MostDiscriminatingValueFunction(self.buffer, self.objectives, self.verbose)
@@ -101,7 +100,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         elif model == 'ror':
             self.model = RobustOrdinalRegression(self.buffer, self.objectives, self.verbose)
         elif model == 'mc':
-            self.model = MonteCarlo(self.buffer, self.objectives, self.verbose, seed=self.seed)
+            self.model = MonteCarlo(self.buffer, self.objectives, self.verbose)
         else:
             raise ValueError(f'unknown model: {model}')
 
@@ -109,6 +108,11 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             self.with_nondominance_ranking = with_nondominance_ranking
         else:
             raise ValueError(f'wrong `with_nondominance_ranking` parameter: {with_nondominance_ranking}')
+
+        if isinstance(seed, int):
+            self.seed = seed
+        else:
+            raise ValueError(f'wrong `seed` parameter: {seed}')
 
         if isinstance(save_csv, bool):
             self.save_csv = save_csv
@@ -124,6 +128,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             self.plotting_checkpoints = plotting_checkpoints
         else:
             raise ValueError(f'wrong number of plotting checkpoints: {len(plotting_checkpoints)}')
+        self.plotting_ticks = plotting_ticks
 
         if self.verbose:
             print(f'PC-ACO initialized successfully at {start_time} with parameters:', flush=True)
@@ -137,7 +142,10 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         self.duration = 0.0
 
         # initializing ant colony
-        self.rng = np.random.default_rng(seed)
+        # using both numpy and random seeding to make sure that the same results are achieved with the same seed,
+        # no matter the RNG used by some libraries
+        np.random.seed(seed)
+        random.seed(seed)
         self.nds = NonDominatedSorting()
         self.aco_means = None  # 2d matrix (self.ants, self.variables)
         self.aco_weights = None  # 1d vector (self.ants), don't confuse with user value function weights
@@ -191,7 +199,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                 selected_front = front
                 break
         if selected_front is not None:
-            selected_index1, selected_index2 = self.rng.choice(selected_front, size=2, replace=False)
+            selected_index1, selected_index2 = np.random.choice(selected_front, size=2, replace=False)
         else:
             # if there is only 1 solution in every front, then use the solutions from the first and second front
             # they are not non-dominated, but it handles an unlikely theoretically possible edge-case
@@ -210,7 +218,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         # safely get a number from normal distribution
         # in case the value is out of the allowed bounds, reflect the value on the lower/upper bound
         # in case the value is still out of bounds, trim to the lower/upper bound
-        base_val = self.rng.normal(loc, scale)
+        base_val = np.random.normal(loc, scale)
         if base_val < min_val:
             return min(max(min_val - base_val, min_val), max_val)
         elif base_val > max_val:
@@ -223,7 +231,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         solution = np.zeros(self.variables)
         for n in range(self.variables):
             # step 1: randomly select the gaussian function
-            k = self.rng.choice(range(self.ants), size=1, p=self.aco_probabilities)
+            k = np.random.choice(range(self.ants), size=1, p=self.aco_probabilities)
 
             # step 2: randomly sample the value from a parametrized normal distribution
             # calculate std for selected gaussian function
@@ -249,7 +257,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             'variables': self.variables,
             'objectives': self.objectives,
             'user_value_function': str(self.user_value_function),
-            'extreme_objective': self.user_value_function.extreme_objective,
+            'extreme_objective': self.extreme_objective,
             'model': str(self.model),
             'with_nondominance_ranking': self.with_nondominance_ranking,
             'best_convergence': np.min(convergence_indicators),
@@ -283,8 +291,10 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                 print('Pareto-front plotting error.')
             plt.xlabel('Objective 1')
             plt.ylabel('Objective 2')
-            #plt.xticks(np.arange(0, 1.5, 0.1))
-            #plt.yticks(np.arange(0, 1.5, 0.1))
+            if self.plotting_ticks is not None:
+                plt.xticks(self.plotting_ticks['x'])
+                plt.yticks(self.plotting_ticks['y'])
+            plt.grid('both')
             plt.legend(loc='upper right')
             plot_file = f'results/plot_{self.start_time}.png'
             plt.savefig(plot_file, bbox_inches='tight', pad_inches=0.3)
@@ -298,9 +308,9 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         start = time.perf_counter()
 
         # random initialization of the 0th population
-        population = self.rng.uniform(low=np.tile(self.problem.xl, (self.ants, 1)),
-                                      high=np.tile(self.problem.xu, (self.ants, 1)),
-                                      size=(self.ants, self.variables))
+        population = np.random.uniform(low=np.tile(self.problem.xl, (self.ants, 1)),
+                                       high=np.tile(self.problem.xu, (self.ants, 1)),
+                                       size=(self.ants, self.variables))
         objective_values = self.problem.evaluate(population)
 
         # assign approximate bounds of objective values in preference model (needed for interpolation)
@@ -381,8 +391,8 @@ if __name__ == '__main__':
                         help='type of MOO benchamark problem to solve (from pymoo library)')
     parser.add_argument('-v', '--variables', type=int, default=10,
                         help='number of variables for DTLZ and WFG problems (not applicable for ZDT)')
-    parser.add_argument('-o', '--objectives', type=int, default=2,
-                        help='number of objectives (2, 3 or 4) for DTLZ and WFG problems (not applicable for ZDT)')
+    parser.add_argument('-o', '--objectives', type=int, default=2, choices=[2, 3, 4, 5],
+                        help='number of objectives (2, 3, 4 or 5) for DTLZ and WFG problems (not applicable for ZDT)')
     parser.add_argument('-u', '--user-value-function', choices=['linear', 'chebycheff'], default='linear',
                         help='type of the user`s (decision maker`s) value function for comparisons')
     parser.add_argument('-e', '--extreme-objective', action='store_true',

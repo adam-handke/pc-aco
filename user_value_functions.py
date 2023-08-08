@@ -2,12 +2,11 @@ import numpy as np
 
 
 class UserValueFunction:
-    def __init__(self, weights, extreme_objective):
+    def __init__(self, weights):
         if np.round(np.sum(weights), 7) == 1.0:
             self.weights = np.array(weights)
         else:
             raise ValueError(f'weights do not add up to 1.0: {weights} (sum={np.sum(weights)})')
-        self.extreme_objective = extreme_objective
 
     def _function(self, objectives):
         raise NotImplementedError
