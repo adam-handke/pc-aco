@@ -16,7 +16,7 @@ from models import MostDiscriminatingValueFunction, MinimalSlopeChangeValueFunct
 class PairwiseComparisonsBasedAntColonyOptimization:
     def __init__(self, generations=100, ants=100, q=0.1, xi=0.5, interval=10, buffer=30, problem='zdt1', variables=None,
                  objectives=None, user_value_function='linear', extreme_objective=False, model='mdvf',
-                 with_nondominance_ranking=True, seed=42, save_csv=True, draw_plot=True,
+                 with_nondominance_ranking=True, max_no_improvement=10, seed=42, save_csv=True, draw_plot=True,
                  plotting_checkpoints=(10, 33, 66, 100), plotting_ticks=None, verbose=False):
         start_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
         # handling given parameters
@@ -108,6 +108,11 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             self.with_nondominance_ranking = with_nondominance_ranking
         else:
             raise ValueError(f'wrong `with_nondominance_ranking` parameter: {with_nondominance_ranking}')
+
+        if isinstance(max_no_improvement, int):
+            self.max_no_improvement = max_no_improvement
+        else:
+            raise ValueError(f'wrong `max_no_improvement` parameter: {max_no_improvement}')
 
         if isinstance(seed, int):
             self.seed = seed
@@ -242,12 +247,13 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                                                              max_val=self.problem.xu[n]).item()
         return np.array(solution)
 
-    def save(self, objective_values):
+    def save(self, objective_values, actual_generations):
         convergence_indicators = [self.user_value_function.calculate(obj) for obj in objective_values]
         results_df = pd.DataFrame({
             'start_time': self.start_time,
             'seed': self.seed,
             'generations': self.generations,
+            'actual_generations': actual_generations,
             'ants': self.ants,
             'q': self.q,
             'xi': self.xi,
@@ -280,9 +286,16 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             marker_dict = {gen: shape for gen, shape in zip(self.plotting_checkpoints, ['^', 's', 'p', 'o'])}
 
             for gen_to_plot in self.plotting_checkpoints:
-                plt.scatter(history[gen_to_plot-1][:, 0], history[gen_to_plot-1][:, 1], c=color_dict[gen_to_plot],
-                            label=f'PC-ACO-{str(self.model)} after {gen_to_plot} gen.', alpha=0.8,
-                            marker=marker_dict[gen_to_plot])
+                if gen_to_plot <= len(history):
+                    plt.scatter(history[gen_to_plot-1][:, 0], history[gen_to_plot-1][:, 1], c=color_dict[gen_to_plot],
+                                label=f'PC-ACO-{str(self.model)} after {gen_to_plot} gen.', alpha=0.8,
+                                marker=marker_dict[gen_to_plot])
+                else:
+                    # handle case when pc-aco stops early due to no improvement
+                    plt.scatter(history[-1][:, 0], history[-1][:, 1], c=color_dict[gen_to_plot],
+                                label=f'PC-ACO-{str(self.model)} after {gen_to_plot} gen. (early stop)', alpha=0.8,
+                                marker=marker_dict[gen_to_plot])
+                    break
             try:
                 pareto_front = self.problem.pareto_front()
                 plt.scatter(pareto_front[:, 0], pareto_front[:, 1], edgecolors='dimgrey', facecolors='none',
@@ -320,11 +333,15 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         history = []
         self.update_preference_model(objective_values)
         self.update_ant_colony(population, objective_values)
+
+        convergence_indicators = [self.user_value_function.calculate(obj_val) for obj_val in objective_values]
+        last_performance = np.round(np.mean(convergence_indicators))
+        count_no_improvement = 0
         if self.verbose:
-            convergence_indicators = [self.user_value_function.calculate(obj_val) for obj_val in objective_values]
             print(f'Finished generation 0 after {np.round(time.perf_counter() - start, 3)}s from start '
-                  f'(best={np.round(np.min(convergence_indicators), 3)}; '
-                  f'avg={np.round(np.mean(convergence_indicators), 3)})', flush=True)
+                  f'(best={np.round(np.min(convergence_indicators))}; '
+                  f'avg={last_performance}; '
+                  f'buffer={len(self.model.buffer)})', flush=True)
 
         # main ACO loop
         for g in range(1, self.generations+1):
@@ -353,16 +370,30 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             objective_values = new_objective_values
             history.append(objective_values)
 
+            convergence_indicators = [self.user_value_function.calculate(obj_val) for obj_val in objective_values]
+            current_performance = np.round(np.mean(convergence_indicators), 3)
             if self.verbose:
-                convergence_indicators = [self.user_value_function.calculate(obj_val) for obj_val in objective_values]
                 print(f'Finished generation {g} after {np.round(time.perf_counter() - start, 3)}s from start '
                       f'(best={np.round(np.min(convergence_indicators), 3)}; '
-                      f'avg={np.round(np.mean(convergence_indicators), 3)})', flush=True)
+                      f'avg={current_performance}; '
+                      f'buffer={len(self.model.buffer)}'
+                      + ('; no improvement!)' if current_performance >= last_performance else ')'), flush=True)
+
+            # early stopping if 'max_no_improvement' generations without avg. improvement in the first 3 decimal places
+            if current_performance >= last_performance:
+                count_no_improvement += 1
+                if count_no_improvement == self.max_no_improvement:
+                    if self.verbose:
+                        print(f'Early stopping due to {count_no_improvement} generations without avg. improvement.')
+                    break
+            else:
+                count_no_improvement = 0
+            last_performance = current_performance
 
         stop = time.perf_counter()
         self.duration = stop - start
         if self.save_csv:
-            self.save(objective_values)
+            self.save(objective_values, len(history))
         if self.draw_plot:
             self.plot(history)
         if self.verbose:
@@ -401,6 +432,8 @@ if __name__ == '__main__':
                         help='type of the value function approach for the preference model')
     parser.add_argument('-r', '--with-nondominance-ranking', action='store_true',
                         help='whether to use the nondominance ranking during solution sorting')
+    parser.add_argument('-mni', '--max-no-improvement', type=int, default=10,
+                        help='max number of generations without improvement')
     parser.add_argument('-s', '--seed', type=int, default=42,
                         help='random number generator seed')
     parser.add_argument('-c', '--save-csv', action='store_true',

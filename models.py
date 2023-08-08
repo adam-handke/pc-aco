@@ -1,6 +1,7 @@
 import time
 import warnings
 import numpy as np
+import multiprocessing
 from pulp import LpProblem, LpVariable, LpMaximize, LpMinimize, PULP_CBC_CMD
 from anyHR.constraint.Constraint import Constraints
 from anyHR.hit_and_run.hit_and_run import HitAndRun, DirectionSampling, Shrinking, InitPoint
@@ -397,6 +398,75 @@ class MonteCarlo(Model):
     def __str__(self):
         return 'MC'
 
+    def sample_worker(self, objectives, buffer, best_obj, worst_obj, queue):
+        # worker defined as a subprocess in order to be able to terminate it if it runs for too long
+        var_names = []
+        var_names.extend([f'ubest{obj}' for obj in range(objectives)])
+        var_names.extend([f'uworst{obj}' for obj in range(objectives)])
+        for pair in range(len(buffer)):
+            var_names.extend([f'ub{obj}_{pair}' for obj in range(objectives)])
+        for pair in range(len(buffer)):
+            var_names.extend([f'uw{obj}_{pair}' for obj in range(objectives)])
+
+        bounds = [[-0.0000000001, 1.0000000001] for _ in range(len(var_names))]
+        constr = Constraints(var_names)
+
+        # pairwise preference constraints (no epsilon needed)
+        for pair in range(len(buffer)):
+            better_util = '+'.join([f'ub{obj}_{pair}' for obj in range(objectives)])
+            worse_util = '+'.join([f'uw{obj}_{pair}' for obj in range(objectives)])
+            constr.add_constraint(better_util + ' > ' + worse_util)
+
+        # monotonicity constraints
+        for obj in range(objectives):
+            for pair1 in range(len(buffer)):
+                for pair2 in range(len(buffer)):
+                    for p1 in range(2):  # which solution in pair1
+                        for p2 in range(2):  # which solution in pair2
+                            if pair1 != pair2 or p1 != p2:
+                                if buffer[pair1][p1][obj] < buffer[pair2][p2][obj]:
+                                    constr.add_constraint((f'ub{obj}_{pair1}' if p1 == 0 else f'uw{obj}_{pair1}')
+                                                          + ' >= '
+                                                          + (f'ub{obj}_{pair2}' if p2 == 0 else f'uw{obj}_{pair2}'))
+                                elif buffer[pair1][p1][obj] == buffer[pair2][p2][obj]:
+                                    # making sure that the same objective value always has the same utility
+                                    constr.add_constraint((f'ub{obj}_{pair1}' if p1 == 0 else f'uw{obj}_{pair1}')
+                                                          + ' == '
+                                                          + (f'ub{obj}_{pair2}' if p2 == 0 else f'uw{obj}_{pair2}'))
+        for obj in range(objectives):
+            for pair in range(len(buffer)):
+                if buffer[pair][0][obj] < worst_obj[obj]:
+                    constr.add_constraint(f'ub{obj}_{pair} >= uworst{obj}')
+                elif buffer[pair][0][obj] == worst_obj[obj]:
+                    constr.add_constraint(f'ub{obj}_{pair} == uworst{obj}')
+
+                if buffer[pair][1][obj] < worst_obj[obj]:
+                    constr.add_constraint(f'uw{obj}_{pair} >= uworst{obj}')
+                elif buffer[pair][1][obj] == worst_obj[obj]:
+                    constr.add_constraint(f'uw{obj}_{pair} == uworst{obj}')
+
+                if best_obj[obj] < buffer[pair][0][obj]:
+                    constr.add_constraint(f'ubest{obj} >= ub{obj}_{pair}')
+                elif best_obj[obj] == buffer[pair][0][obj]:
+                    constr.add_constraint(f'ubest{obj} == ub{obj}_{pair}')
+
+                if best_obj[obj] < buffer[pair][1][obj]:
+                    constr.add_constraint(f'ubest{obj} >= uw{obj}_{pair}')
+                elif best_obj[obj] == buffer[pair][1][obj]:
+                    constr.add_constraint(f'ubest{obj} == uw{obj}_{pair}')
+            constr.add_constraint(f'ubest{obj} >= uworst{obj}')
+
+        # normalization constraints (lower bound)
+        constr.add_constraint('+'.join([f'ubest{obj}' for obj in range(objectives)]) + ' == 1.0')
+        # normalization constraints (upper bound)
+        for obj in range(objectives):
+            constr.add_constraint(f'uworst{obj} == 0.0')
+
+        har = HitAndRun(constraint=constr, bounding_box=bounds, direction_sampling=DirectionSampling.CDHR,
+                        shrinking=Shrinking.SHRINKING, init_point=InitPoint.SMT)
+        sample, rejections = har.next_sample()
+        queue.put(sample)
+
     def update(self, compared_pair):
         super().update(compared_pair)
         while len(self.buffer) > 0:
@@ -405,78 +475,26 @@ class MonteCarlo(Model):
             # 2) sample compatible value functions using hit-and-run method
             # 3) save all sampled value functions and later average the utilities over all of them
             samples = []
-            var_names = []
-            var_names.extend([f'ubest{obj}' for obj in range(self.objectives)])
-            var_names.extend([f'uworst{obj}' for obj in range(self.objectives)])
-            for pair in range(len(self.buffer)):
-                var_names.extend([f'ub{obj}_{pair}' for obj in range(self.objectives)])
-            for pair in range(len(self.buffer)):
-                var_names.extend([f'uw{obj}_{pair}' for obj in range(self.objectives)])
-
-            bounds = [[-0.0000000001, 1.0000000001] for _ in range(len(var_names))]
-            constr = Constraints(var_names)
-
-            # pairwise preference constraints (no epsilon needed)
-            for pair in range(len(self.buffer)):
-                better_util = '+'.join([f'ub{obj}_{pair}' for obj in range(self.objectives)])
-                worse_util = '+'.join([f'uw{obj}_{pair}' for obj in range(self.objectives)])
-                constr.add_constraint(better_util + ' > ' + worse_util)
-
-            # monotonicity constraints
-            for obj in range(self.objectives):
-                for pair1 in range(len(self.buffer)):
-                    for pair2 in range(len(self.buffer)):
-                        for p1 in range(2):  # which solution in pair1
-                            for p2 in range(2):  # which solution in pair2
-                                if pair1 != pair2 or p1 != p2:
-                                    if self.buffer[pair1][p1][obj] < self.buffer[pair2][p2][obj]:
-                                        constr.add_constraint((f'ub{obj}_{pair1}' if p1 == 0 else f'uw{obj}_{pair1}')
-                                                              + ' >= '
-                                                              + (f'ub{obj}_{pair2}' if p2 == 0 else f'uw{obj}_{pair2}'))
-                                    elif self.buffer[pair1][p1][obj] == self.buffer[pair2][p2][obj]:
-                                        # making sure that the same objective value always has the same utility
-                                        constr.add_constraint((f'ub{obj}_{pair1}' if p1 == 0 else f'uw{obj}_{pair1}')
-                                                              + ' == '
-                                                              + (f'ub{obj}_{pair2}' if p2 == 0 else f'uw{obj}_{pair2}'))
-            for obj in range(self.objectives):
-                for pair in range(len(self.buffer)):
-                    if self.buffer[pair][0][obj] < self.worst_obj[obj]:
-                        constr.add_constraint(f'ub{obj}_{pair} >= uworst{obj}')
-                    elif self.buffer[pair][0][obj] == self.worst_obj[obj]:
-                        constr.add_constraint(f'ub{obj}_{pair} == uworst{obj}')
-
-                    if self.buffer[pair][1][obj] < self.worst_obj[obj]:
-                        constr.add_constraint(f'uw{obj}_{pair} >= uworst{obj}')
-                    elif self.buffer[pair][1][obj] == self.worst_obj[obj]:
-                        constr.add_constraint(f'uw{obj}_{pair} == uworst{obj}')
-
-                    if self.best_obj[obj] < self.buffer[pair][0][obj]:
-                        constr.add_constraint(f'ubest{obj} >= ub{obj}_{pair}')
-                    elif self.best_obj[obj] == self.buffer[pair][0][obj]:
-                        constr.add_constraint(f'ubest{obj} == ub{obj}_{pair}')
-
-                    if self.best_obj[obj] < self.buffer[pair][1][obj]:
-                        constr.add_constraint(f'ubest{obj} >= uw{obj}_{pair}')
-                    elif self.best_obj[obj] == self.buffer[pair][1][obj]:
-                        constr.add_constraint(f'ubest{obj} == uw{obj}_{pair}')
-                constr.add_constraint(f'ubest{obj} >= uworst{obj}')
-
-            # normalization constraints (lower bound)
-            constr.add_constraint('+'.join([f'ubest{obj}' for obj in range(self.objectives)]) + ' == 1.0')
-            # normalization constraints (upper bound)
-            for obj in range(self.objectives):
-                constr.add_constraint(f'uworst{obj} == 0.0')
-
             try:
-                har = HitAndRun(constraint=constr, bounding_box=bounds, direction_sampling=DirectionSampling.CDHR,
-                                shrinking=Shrinking.SHRINKING, init_point=InitPoint.SMT)
                 num_samples = 10
                 time_limit = 10  # 10 seconds time limit
+                queue = multiprocessing.SimpleQueue()
                 start = time.perf_counter()
                 while len(samples) < num_samples and time.perf_counter() - start < time_limit:
-                    sample, rejections = har.next_sample()
-                    samples.append(sample)
-
+                    p = multiprocessing.Process(target=self.sample_worker, args=(self.objectives, self.buffer,
+                                                                                 self.best_obj, self.worst_obj, queue))
+                    p.daemon = True
+                    p.start()
+                    p.join(timeout=time_limit)
+                    if p.is_alive():
+                        warnings.warn('Sampling timed out!')
+                        p.kill()
+                        p.join()
+                    else:
+                        sample = queue.get()
+                        samples.append(sample)
+                if len(samples) == 0:
+                    raise ValueError('Sampling timed out before returning any samples!')
                 self.interp_points = [self.translate_interpolation_points_from_flat(flat_input=s) for s in samples]
                 if self.verbose:
                     print(f'Sampled and saved {len(samples)} value functions', flush=True)
