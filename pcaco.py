@@ -7,6 +7,7 @@ import pandas as pd
 from pymoo.problems import get_problem
 from pymoo.util.nds.non_dominated_sorting import NonDominatedSorting
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
 
 from user_value_functions import LinearUserValueFunction, ChebycheffUserValueFunction
 from models import MostDiscriminatingValueFunction, MinimalSlopeChangeValueFunction, MaximalSumOfScoresValueFunction, \
@@ -14,10 +15,11 @@ from models import MostDiscriminatingValueFunction, MinimalSlopeChangeValueFunct
 
 
 class PairwiseComparisonsBasedAntColonyOptimization:
-    def __init__(self, generations=100, ants=100, q=0.1, xi=0.5, interval=10, buffer=30, problem='zdt1', variables=None,
+    def __init__(self, generations=100, ants=30, q=0.1, xi=0.5, interval=10, buffer=30, problem='zdt1', variables=None,
                  objectives=None, user_value_function='linear', extreme_objective=False, model='mdvf',
                  with_nondominance_ranking=True, max_no_improvement=10, seed=42, save_csv=True, draw_plot=True,
-                 plotting_checkpoints=(10, 33, 66, 100), plotting_ticks=None, verbose=False):
+                 plotting_checkpoints=(10, 33, 66, 100), plotting_ticks=None, draw_value_function=False,
+                 pdf_plots=False, verbose=False):
         start_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
         # handling given parameters
         if isinstance(generations, int) and generations > 0:
@@ -126,14 +128,36 @@ class PairwiseComparisonsBasedAntColonyOptimization:
 
         if isinstance(draw_plot, bool):
             self.draw_plot = draw_plot
+            self.plotting_ticks = plotting_ticks
+            if len(plotting_checkpoints) == 4:
+                self.plotting_checkpoints = plotting_checkpoints
+                self.color_dict = {gen: color for gen, color in zip(self.plotting_checkpoints,
+                                                                    ['tab:green', 'tab:blue', 'tab:purple', 'tab:red'])}
+                self.marker_dict = {gen: shape for gen, shape in zip(self.plotting_checkpoints, ['^', 's', 'p', 'o'])}
+            else:
+                raise ValueError(f'wrong number of plotting checkpoints: {len(plotting_checkpoints)}; should be 4')
         else:
             raise ValueError(f'wrong `draw_plot` parameter: {draw_plot}')
 
-        if len(plotting_checkpoints) == 4:
-            self.plotting_checkpoints = plotting_checkpoints
+        if isinstance(draw_value_function, bool):
+            self.draw_value_function = draw_value_function
         else:
-            raise ValueError(f'wrong number of plotting checkpoints: {len(plotting_checkpoints)}')
-        self.plotting_ticks = plotting_ticks
+            raise ValueError(f'wrong `draw_value_function` parameter: {draw_value_function}')
+
+        if isinstance(pdf_plots, bool):
+            self.pdf_plots = pdf_plots
+        else:
+            raise ValueError(f'wrong `pdf_plots` parameter: {pdf_plots}')
+
+        if self.draw_plot or self.draw_value_function:
+            # turn on latex font if available
+            # can be downloaded from: https://www.fontsquirrel.com/fonts/computer-modern
+            if 'cmr10' in font_manager.get_font_names():
+                plt.rcParams.update({'font.family': 'serif',
+                                     'font.serif': 'cmr10',
+                                     'axes.formatter.use_mathtext': True})
+            # make all plot text same size
+            plt.rcParams.update({'font.size': 16})
 
         if self.verbose:
             print(f'PC-ACO initialized successfully at {start_time} with parameters:', flush=True)
@@ -281,20 +305,16 @@ class PairwiseComparisonsBasedAntColonyOptimization:
     def plot(self, history):
         if self.objectives == 2:
             plt.figure(figsize=(10, 10))
-            color_dict = {gen: color for gen, color in zip(self.plotting_checkpoints,
-                                                           ['tab:green', 'tab:blue', 'tab:purple', 'tab:red'])}
-            marker_dict = {gen: shape for gen, shape in zip(self.plotting_checkpoints, ['^', 's', 'p', 'o'])}
-
             for gen_to_plot in self.plotting_checkpoints:
                 if gen_to_plot <= len(history):
-                    plt.scatter(history[gen_to_plot-1][:, 0], history[gen_to_plot-1][:, 1], c=color_dict[gen_to_plot],
-                                label=f'PC-ACO-{str(self.model)} after {gen_to_plot} gen.', alpha=0.8,
-                                marker=marker_dict[gen_to_plot])
+                    plt.scatter(history[gen_to_plot-1][:, 0], history[gen_to_plot-1][:, 1],
+                                c=self.color_dict[gen_to_plot], marker=self.marker_dict[gen_to_plot], alpha=0.7,
+                                label=f'PC-ACO-{str(self.model)} after {gen_to_plot} gen.')
                 else:
                     # handle case when pc-aco stops early due to no improvement
-                    plt.scatter(history[-1][:, 0], history[-1][:, 1], c=color_dict[gen_to_plot],
-                                label=f'PC-ACO-{str(self.model)} after {gen_to_plot} gen. (early stop)', alpha=0.8,
-                                marker=marker_dict[gen_to_plot])
+                    plt.scatter(history[-1][:, 0], history[-1][:, 1],
+                                c=self.color_dict[gen_to_plot], marker=self.marker_dict[gen_to_plot], alpha=0.7,
+                                label=f'PC-ACO-{str(self.model)} after {len(history)} gen. (early stop)')
                     break
             try:
                 pareto_front = self.problem.pareto_front()
@@ -308,14 +328,65 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                 plt.xticks(self.plotting_ticks['x'])
                 plt.yticks(self.plotting_ticks['y'])
             plt.grid('both')
-            plt.legend(loc='upper right')
-            plot_file = f'results/plot_{self.start_time}.png'
-            plt.savefig(plot_file, bbox_inches='tight', pad_inches=0.3)
+            if self.problem.__class__.__name__ in ['WFG4', 'WFG9']:
+                # move legend to lower left corner for concave problems
+                plt.legend(loc='lower left')
+            else:
+                plt.legend(loc='upper right')
+            plot_file = f'results/plot_{self.start_time}' + ('.pdf' if self.pdf_plots else '.png')
+            plt.savefig(plot_file, bbox_inches='tight', pad_inches=0.1)
             plt.close()
             if self.verbose:
                 print(f'Plot saved to {plot_file}')
         else:
             print('Plotting error - only instances with 2 objectives can be plotted.', flush=True)
+
+    def show_final_value_function(self, vf_history):
+        plt.figure(figsize=(10 * self.objectives, 10))
+        for obj in range(self.objectives):
+            plt.subplot(1, self.objectives, obj+1)
+            if str(self.model) == 'MC':
+                for gen_to_plot in self.plotting_checkpoints:
+                    if gen_to_plot <= len(vf_history):
+                        for vf in range(len(vf_history[gen_to_plot-1])):
+                            plt.plot(vf_history[gen_to_plot-1][vf][obj]['obj'],
+                                     vf_history[gen_to_plot-1][vf][obj]['util'],
+                                     color=self.color_dict[gen_to_plot], marker=self.marker_dict[gen_to_plot],
+                                     alpha=0.7, linewidth=3,
+                                     label=(f'PC-ACO-{str(self.model)} after {gen_to_plot} gen.' if vf == 0 else None))
+                    else:
+                        for vf in range(len(vf_history[-1])):
+                            plt.plot(vf_history[-1][vf][obj]['obj'], vf_history[-1][vf][obj]['util'],
+                                     color=self.color_dict[gen_to_plot], marker=self.marker_dict[gen_to_plot],
+                                     alpha=0.7, linewidth=3,
+                                     label=((f'PC-ACO-{str(self.model)} after {len(vf_history)} gen. '
+                                             f'(early stop)') if vf == 0 else None))
+                        break
+            else:
+                for gen_to_plot in self.plotting_checkpoints:
+                    if gen_to_plot <= len(vf_history):
+                        plt.plot(vf_history[gen_to_plot-1][obj]['obj'], vf_history[gen_to_plot-1][obj]['util'],
+                                 color=self.color_dict[gen_to_plot], marker=self.marker_dict[gen_to_plot],
+                                 alpha=0.7, linewidth=3,
+                                 label=f'PC-ACO-{str(self.model)} after {gen_to_plot} gen.')
+                    else:
+                        # handle case when pc-aco stops early due to no improvement
+                        plt.plot(vf_history[-1][obj]['obj'], vf_history[-1][obj]['util'],
+                                 color=self.color_dict[gen_to_plot], marker=self.marker_dict[gen_to_plot],
+                                 alpha=0.7, linewidth=3,
+                                 label=f'PC-ACO-{str(self.model)} after {len(vf_history)} gen. (early stop)')
+                        break
+            plt.xlabel(f'Objective {obj+1}')
+            plt.ylabel(f'Marginal value of objective {obj+1}')
+            plt.xticks(np.arange(self.model.best_obj[obj], np.round(self.model.worst_obj[obj]+0.5, 1), 0.5))
+            plt.yticks(np.arange(0.0, 1.1, 0.1))
+            plt.grid('both')
+            plt.legend(loc='upper right')
+        plot_file = f'results/vf_{self.start_time}' + ('.pdf' if self.pdf_plots else '.png')
+        plt.savefig(plot_file, bbox_inches='tight', pad_inches=0.1)
+        plt.close()
+        if self.verbose:
+            print(f'Value function plot saved to {plot_file}')
 
     def solve(self):
         start = time.perf_counter()
@@ -331,6 +402,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         self.model.worst_obj = np.ceil(np.max(objective_values, axis=0))
 
         history = []
+        vf_history = []
         self.update_preference_model(objective_values)
         self.update_ant_colony(population, objective_values)
 
@@ -369,6 +441,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             population = new_population
             objective_values = new_objective_values
             history.append(objective_values)
+            vf_history.append(self.model.interp_points)
 
             convergence_indicators = [self.user_value_function.calculate(obj_val) for obj_val in objective_values]
             current_performance = np.round(np.mean(convergence_indicators), 3)
@@ -396,6 +469,8 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             self.save(objective_values, len(history))
         if self.draw_plot:
             self.plot(history)
+        if self.draw_value_function:
+            self.show_final_value_function(vf_history)
         if self.verbose:
             print(f'PC-ACO completed optimization successfully in {np.round(self.duration, 3)}s')
 
@@ -440,6 +515,10 @@ if __name__ == '__main__':
                         help='save results to csv')
     parser.add_argument('-d', '--draw-plot', action='store_true',
                         help='draw plot of the results')
+    parser.add_argument('-dvf', '--draw-value-function', action='store_true',
+                        help='draw plot of the value function used in the final generation')
+    parser.add_argument('-pdf', '--pdf-plots', action='store_true',
+                        help='save plots as PDF file; if not enables, plots will be saved as PNG')
     parser.add_argument('--verbose', action='store_true',
                         help='print messages to terminal')
     args = parser.parse_args()
@@ -460,5 +539,6 @@ if __name__ == '__main__':
                                                           seed=args.seed,
                                                           save_csv=args.save_csv,
                                                           draw_plot=args.draw_plot,
+                                                          pdf_plots=args.pdf_plots,
                                                           verbose=args.verbose)
     pcaco.solve()
