@@ -107,12 +107,24 @@ class Model:
             lp += u_best[obj] >= u_worst[obj]
         return lp
 
-    def add_normalization_constraints(self, lp, u_best, u_worst):
+    def add_normalization_constraints(self, lp, u_best, u_worst, u_better, u_worse):
         # lower bound
         lp += sum([u_best[obj] for obj in range(self.objectives)]) == 1.0
         # upper bound
         for obj in range(self.objectives):
             lp += u_worst[obj] == 0.0
+        # all >= 0.0
+        for obj in range(self.objectives):
+            for pair in range(len(self.buffer)):
+                lp += u_better[pair][obj] >= 0.0
+                lp += u_worse[pair][obj] >= 0.0
+            lp += u_best[obj] >= 0.0
+        # all <= 1.0
+        for obj in range(self.objectives):
+            for pair in range(len(self.buffer)):
+                lp += u_better[pair][obj] <= 1.0
+                lp += u_worse[pair][obj] <= 1.0
+            lp += u_best[obj] <= 1.0
         return lp
 
     def update_upper_bound_on_objective(self, obj, new_upper_bound):
@@ -154,7 +166,7 @@ class MostDiscriminatingValueFunction(Model):
         # monotonicity constraints
         lp = self.add_monotonicity_constraints(lp, u_best, u_worst, u_better, u_worse)
         # normalization constraints
-        lp = self.add_normalization_constraints(lp, u_best, u_worst)
+        lp = self.add_normalization_constraints(lp, u_best, u_worst, u_better, u_worse)
 
         lp.solve(PULP_CBC_CMD(msg=False))
         return epsilon, u_best, u_worst, u_better, u_worse
@@ -242,7 +254,7 @@ class MinimalSlopeChangeValueFunction(Model):
                 # monotonicity constraints
                 lp = self.add_monotonicity_constraints(lp, u_best, u_worst, u_better, u_worse)
                 # normalization constraints
-                lp = self.add_normalization_constraints(lp, u_best, u_worst)
+                lp = self.add_normalization_constraints(lp, u_best, u_worst, u_better, u_worse)
 
                 lp.solve(PULP_CBC_CMD(msg=False))
                 if self.verbose:
@@ -296,7 +308,7 @@ class MaximalSumOfScoresValueFunction(Model):
                 # monotonicity constraints
                 lp = self.add_monotonicity_constraints(lp, u_best, u_worst, u_better, u_worse)
                 # normalization constraints
-                lp = self.add_normalization_constraints(lp, u_best, u_worst)
+                lp = self.add_normalization_constraints(lp, u_best, u_worst, u_better, u_worse)
 
                 lp.solve(PULP_CBC_CMD(msg=False))
                 if self.verbose:
@@ -348,7 +360,7 @@ class RobustOrdinalRegression(Model):
                 # monotonicity constraints
                 np_lp = self.add_monotonicity_constraints(np_lp, np_u_best, np_u_worst, np_u_better, np_u_worse)
                 # normalization constraints
-                np_lp = self.add_normalization_constraints(np_lp, np_u_best, np_u_worst)
+                np_lp = self.add_normalization_constraints(np_lp, np_u_best, np_u_worst, np_u_better, np_u_worse)
 
                 np_lp.solve(PULP_CBC_CMD(msg=False))
                 # check if preference is necessary
@@ -382,7 +394,7 @@ class RobustOrdinalRegression(Model):
                     # monotonicity constraints
                     lp = self.add_monotonicity_constraints(lp, u_best, u_worst, u_better, u_worse)
                     # normalization constraints
-                    lp = self.add_normalization_constraints(lp, u_best, u_worst)
+                    lp = self.add_normalization_constraints(lp, u_best, u_worst, u_better, u_worse)
 
                     lp.solve(PULP_CBC_CMD(msg=False))
                     if self.verbose:
