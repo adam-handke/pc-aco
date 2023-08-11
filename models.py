@@ -8,13 +8,16 @@ from anyHR.hit_and_run.hit_and_run import HitAndRun, DirectionSampling, Shrinkin
 
 
 class Model:
-    def __init__(self, buffer_max_size, objectives, verbose, buffer=[], best_obj=None, worst_obj=None, const_eps=None):
+    def __init__(self, buffer_max_size, objectives, verbose, buffer=None, best_obj=None, worst_obj=None, const_eps=None):
         # buffer is implemented based on NEMO-0 approach
         # (J. Branke et al., Learning Value Functions in Interactive Evolutionary Multiobjective Optimization, 2015)
         # it is a list of pairs of vectors of objective values where the 1st is better than the 2nd according to the DM
         # when the buffer becomes too long or the preference model becomes incompatible, the oldest pair is discarded
         self.buffer_max_size = buffer_max_size
-        self.buffer = buffer
+        if buffer is None:
+            self.buffer = list()
+        else:
+            self.buffer = buffer
 
         self.objectives = objectives
         self.verbose = verbose
