@@ -15,9 +15,9 @@ from models import MostDiscriminatingValueFunction, MinimalSlopeChangeValueFunct
 
 
 class PairwiseComparisonsBasedAntColonyOptimization:
-    def __init__(self, generations=100, ants=30, q=0.1, xi=0.5, interval=10, buffer=30, problem='zdt1', variables=None,
+    def __init__(self, generations=100, ants=30, q=0.1, xi=0.5, interval=10, buffer=30, problem='wfg4', variables=None,
                  objectives=None, user_value_function='linear', extreme_objective=False, model='mdvf',
-                 with_nondominance_ranking=True, max_no_improvement=10, seed=42, save_csv=True, draw_plot=True,
+                 with_nondominance_ranking=True, max_no_improvement=20, seed=42, save_csv=True, draw_plot=True,
                  plotting_checkpoints=(10, 33, 66, 100), plotting_ticks=None, draw_value_function=False,
                  pdf_plots=False, verbose=False):
         start_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
@@ -482,45 +482,49 @@ class PairwiseComparisonsBasedAntColonyOptimization:
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-g', '--generations', type=int, default=100, help='number of ACO generations')
-    parser.add_argument('-a', '--ants', type=int, default=30, help='number of ants and population size')
-    parser.add_argument('-q', type=float, default=0.1, help='diversification parameter of ACO')
-    parser.add_argument('-xi', type=float, default=0.5, help='convergence parameter of ACO')
+    parser.add_argument('-g', '--generations', type=int, default=100, help='number of ACO generations; default=100')
+    parser.add_argument('-a', '--ants', type=int, default=30, help='number of ants and population size; default=30')
+    parser.add_argument('-q', type=float, default=0.1, help='diversification parameter of ACO; default=0.1')
+    parser.add_argument('-xi', type=float, default=0.5, help='convergence parameter of ACO; default=0.5')
     parser.add_argument('-i', '--interval', type=int, default=10,
-                        help='intervals between asking the user for a pairwise comparison; interval<generations')
+                        help='intervals between asking the artificial user for a pairwise comparison; '
+                             'interval<generations; default=10')
     parser.add_argument('-b', '--buffer', type=int, default=30,
-                        help='max number of stored pairwise comparisons')
-    parser.add_argument('-p', '--problem', default='zdt1',
+                        help='max number of stored pairwise comparisons; default=30')
+    parser.add_argument('-p', '--problem', default='wfg4',
                         choices=['dtlz1', 'dtlz2', 'dtlz3', 'dtlz4', 'dtlz5', 'dtlz6', 'dtlz7',
                                  'wfg1', 'wfg2', 'wfg3', 'wfg4', 'wfg5', 'wfg6', 'wfg7', 'wfg8', 'wfg9',
                                  'zdt1', 'zdt2', 'zdt3', 'zdt4', 'zdt5', 'zdt6'],
-                        help='type of MOO benchamark problem to solve (from pymoo library)')
+                        help='type of MOO benchamark problem to solve (from pymoo library); default=wfg4')
     parser.add_argument('-v', '--variables', type=int, default=10,
-                        help='number of variables for DTLZ and WFG problems (not applicable for ZDT)')
+                        help='number of variables for DTLZ and WFG problems (not applicable for ZDT); default=10')
     parser.add_argument('-o', '--objectives', type=int, default=2, choices=[2, 3, 4, 5],
-                        help='number of objectives (2, 3, 4 or 5) for DTLZ and WFG problems (not applicable for ZDT)')
+                        help='number of objectives (2, 3, 4 or 5) for DTLZ and WFG problems (not applicable for ZDT); '
+                             'default=2')
     parser.add_argument('-u', '--user-value-function', choices=['linear', 'chebycheff'], default='linear',
-                        help='type of the user`s (decision maker`s) value function for comparisons')
+                        help='type of the user`s (decision maker`s) value function for comparisons; default=linear')
     parser.add_argument('-e', '--extreme-objective', action='store_true',
-                        help='the user considers one of the objectives as much more important than all others')
+                        help='the user considers one of the objectives as much more important than all others; '
+                             'default=False')
     parser.add_argument('-m', '--model', choices=['mdvf', 'mscvf', 'msvf', 'ror', 'mc'], default='mdvf',
-                        help='type of the value function approach for the preference model')
+                        help='type of the value function approach for the preference model; default=mdvf')
     parser.add_argument('-r', '--with-nondominance-ranking', action='store_true',
-                        help='whether to use the nondominance ranking during solution sorting')
-    parser.add_argument('-mni', '--max-no-improvement', type=int, default=10,
-                        help='max number of generations without improvement')
+                        help='whether to use the nondominance ranking during solution sorting; '
+                             'strongly recommended to turn it on; default=False')
+    parser.add_argument('-mni', '--max-no-improvement', type=int, default=20,
+                        help='max number of generations without improvement; default=20')
     parser.add_argument('-s', '--seed', type=int, default=42,
-                        help='random number generator seed')
+                        help='random number generator seed; default=42')
     parser.add_argument('-c', '--save-csv', action='store_true',
-                        help='save results to csv')
+                        help='save results to csv; default=False')
     parser.add_argument('-d', '--draw-plot', action='store_true',
-                        help='draw plot of the results')
+                        help='draw plot of the results; default=False')
     parser.add_argument('-dvf', '--draw-value-function', action='store_true',
-                        help='draw plot of the value function used in the final generation')
+                        help='draw plot of the value functions across all generations and objectives; default=False')
     parser.add_argument('-pdf', '--pdf-plots', action='store_true',
-                        help='save plots as PDF file; if not enables, plots will be saved as PNG')
+                        help='save plots as PDF file; if not enabled, plots will be saved as PNG; default=False')
     parser.add_argument('--verbose', action='store_true',
-                        help='print messages to terminal')
+                        help='print messages to terminal; default=False')
     args = parser.parse_args()
 
     pcaco = PairwiseComparisonsBasedAntColonyOptimization(generations=args.generations,

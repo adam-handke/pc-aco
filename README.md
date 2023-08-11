@@ -5,5 +5,26 @@ Pairwise Comparisons-based Ant Colony Optimization
 * Based on the ant colony metaheuristic.
 * The optimization is steered with user preferences towards more desired solutions.
 * The preferences are expressed by pairwise comparisons which are translated into a value function preference model.
-* Several value function approaches are implemented and compared.
+* 5 value function approaches are implemented and compared.
 * The performance of the algorithm is tested on a set of benchmark problems.
+
+## Requirements
+Available in `requirements.txt`. Install all required packages by running:
+```
+pip install -r requirements.txt
+```
+
+## Running guide
+
+### Run with default parameters:
+```
+python pcaco.py
+```
+### Show help about available parameters:
+```
+python pcaco.py -h
+```
+### Run tests:
+```
+python -m unittest discover -s test/
+```
