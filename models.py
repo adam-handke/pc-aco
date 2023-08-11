@@ -134,7 +134,7 @@ class Model:
         self.worst_obj[obj] = new_upper_bound
         self.interp_points[obj]['obj'][-1] = new_upper_bound
 
-    def update(self, compared_pair):
+    def update(self, compared_pair, init=False):
         # compared_pair = pair of vectors of objective values where the 1st is better than the 2nd according to the DM
         # update procedure must be implemented differently for every model
         if len(self.buffer) > self.buffer_max_size:
@@ -174,7 +174,7 @@ class MostDiscriminatingValueFunction(Model):
         lp.solve(PULP_CBC_CMD(msg=False))
         return epsilon, u_best, u_worst, u_better, u_worse
 
-    def update(self, compared_pair):
+    def update(self, compared_pair, init=False):
         super().update(compared_pair)
         while len(self.buffer) > 0:
             epsilon, u_best, u_worst, u_better, u_worse = self.solve_linear_programming_problem()
@@ -196,7 +196,7 @@ class MinimalSlopeChangeValueFunction(Model):
     def __str__(self):
         return 'MSCVF'
 
-    def update(self, compared_pair):
+    def update(self, compared_pair, init=False):
         super().update(compared_pair)
         while len(self.buffer) > 0:
             # first LP - determine the epsilon using the PRVF/MDVF model
@@ -270,7 +270,7 @@ class MaximalSumOfScoresValueFunction(Model):
     def __str__(self):
         return 'MSVF'
 
-    def update(self, compared_pair):
+    def update(self, compared_pair, init=False):
         super().update(compared_pair)
         while len(self.buffer) > 0:
             # first LP - determine the epsilon using the PRVF/MDVF model
@@ -324,7 +324,7 @@ class RobustOrdinalRegression(Model):
     def __str__(self):
         return 'ROR'
 
-    def update(self, compared_pair):
+    def update(self, compared_pair, init=False):
         super().update(compared_pair)
         while len(self.buffer) > 0:
             # first LP - determine the epsilon using the PRVF/MDVF model
@@ -482,7 +482,7 @@ class MonteCarlo(Model):
         sample, rejections = har.next_sample()
         queue.put(sample)
 
-    def update(self, compared_pair):
+    def update(self, compared_pair, init=False):
         super().update(compared_pair)
         while len(self.buffer) > 0:
             # custom three-step Monte Carlo process done using anyHR package
@@ -495,7 +495,12 @@ class MonteCarlo(Model):
                 time_limit = 10  # 10 seconds time limit
                 queue = multiprocessing.SimpleQueue()
                 start = time.perf_counter()
-                while len(samples) < num_samples and time.perf_counter() - start < time_limit:
+                # stop sampling conditions:
+                # 1) 10 samples achieved
+                # 2) 10s total time limit of sampling exceeded (but this isn't first sampling during initialization)
+                # 3) 10s time limit of a single sampling exceeded causes that sampling to be killed
+                while len(samples) < num_samples and ((init and len(samples) == 0)
+                                                      or time.perf_counter() - start < time_limit):
                     p = multiprocessing.Process(target=self.sample_worker, args=(self.objectives, self.buffer,
                                                                                  self.best_obj, self.worst_obj, queue))
                     p.daemon = True
@@ -510,9 +515,10 @@ class MonteCarlo(Model):
                         samples.append(sample)
                 if len(samples) == 0:
                     raise ValueError('Sampling timed out before returning any samples!')
-                self.interp_points = [self.translate_interpolation_points_from_flat(flat_input=s) for s in samples]
-                if self.verbose:
-                    print(f'Sampled and saved {len(samples)} value functions', flush=True)
+                else:
+                    self.interp_points = [self.translate_interpolation_points_from_flat(flat_input=s) for s in samples]
+                    if self.verbose:
+                        print(f'Sampled and saved {len(samples)} value functions', flush=True)
                 break
             except Exception as e:
                 warnings.warn(str(e))

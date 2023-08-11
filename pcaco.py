@@ -15,11 +15,11 @@ from models import MostDiscriminatingValueFunction, MinimalSlopeChangeValueFunct
 
 
 class PairwiseComparisonsBasedAntColonyOptimization:
-    def __init__(self, generations=100, ants=30, q=0.1, xi=0.5, interval=10, buffer=30, problem='wfg4', variables=None,
-                 objectives=None, user_value_function='linear', extreme_objective=False, model='mdvf',
-                 with_nondominance_ranking=True, max_no_improvement=20, seed=42, save_csv=True, draw_plot=True,
-                 plotting_checkpoints=(10, 33, 66, 100), plotting_ticks=None, draw_value_function=False,
-                 pdf_plots=False, verbose=False):
+    def __init__(self, generations=100, ants=30, q=0.1, xi=0.5, interval=10, buffer=30, problem='wfg4', variables=10,
+                 objectives=2, user_value_function='linear', extreme_objective=False, model='mdvf',
+                 without_nondominance_ranking=False, max_no_improvement=20, seed=42, dont_save_csv=False,
+                 results_file='results/results.csv', draw_plot=False, plotting_checkpoints=None, plotting_ticks=None,
+                 draw_value_function=False, pdf_plots=False, verbose=False):
         start_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
         # handling given parameters
         if isinstance(generations, int) and generations > 0:
@@ -75,7 +75,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         # weights for cases with 2 or 4 objectives taken from 2014 paper:
         # J. Branke et al., Learning Value Functions in Interactive Evolutionary Multiobjective Optimization, 2015
         weights_dict = {'regular': {2: [0.6, 0.4], 3: [0.4, 0.25, 0.35], 4: [0.3, 0.15, 0.2, 0.35], 5: [0.25, 0.15, 0.2, 0.3, 0.1]},
-                        'extreme': {2: [0.85, 0.15], 3: [0.7, 0.1, 0.2], 4: [0.65, 0.1, 0.15, 0.1]}, 5: [0.6, 0.1, 0.15, 0.1, 0.05]}
+                        'extreme': {2: [0.85, 0.15], 3: [0.7, 0.1, 0.2], 4: [0.65, 0.1, 0.15, 0.1], 5: [0.6, 0.1, 0.15, 0.1, 0.05]}}
         if isinstance(extreme_objective, bool) and extreme_objective:
             weights = weights_dict['extreme'][self.objectives]
             self.extreme_objective = extreme_objective
@@ -106,10 +106,10 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         else:
             raise ValueError(f'unknown model: {model}')
 
-        if isinstance(with_nondominance_ranking, bool):
-            self.with_nondominance_ranking = with_nondominance_ranking
+        if isinstance(without_nondominance_ranking, bool):
+            self.without_nondominance_ranking = without_nondominance_ranking
         else:
-            raise ValueError(f'wrong `with_nondominance_ranking` parameter: {with_nondominance_ranking}')
+            raise ValueError(f'wrong `without_nondominance_ranking` parameter: {without_nondominance_ranking}')
 
         if isinstance(max_no_improvement, int):
             self.max_no_improvement = max_no_improvement
@@ -121,23 +121,31 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         else:
             raise ValueError(f'wrong `seed` parameter: {seed}')
 
-        if isinstance(save_csv, bool):
-            self.save_csv = save_csv
+        if isinstance(dont_save_csv, bool):
+            self.dont_save_csv = dont_save_csv
         else:
-            raise ValueError(f'wrong `save_csv` parameter: {save_csv}')
+            raise ValueError(f'wrong `dont_save_csv` parameter: {dont_save_csv}')
+
+        if isinstance(results_file, str):
+            self.results_file = results_file
+        else:
+            raise ValueError(f'wrong `results_file` parameter: {results_file}')
 
         if isinstance(draw_plot, bool):
             self.draw_plot = draw_plot
             self.plotting_ticks = plotting_ticks
-            if len(plotting_checkpoints) == 4:
-                self.plotting_checkpoints = plotting_checkpoints
-                self.color_dict = {gen: color for gen, color in zip(self.plotting_checkpoints,
-                                                                    ['tab:green', 'tab:blue', 'tab:purple', 'tab:red'])}
-                self.marker_dict = {gen: shape for gen, shape in zip(self.plotting_checkpoints, ['^', 's', 'p', 'o'])}
-            else:
-                raise ValueError(f'wrong number of plotting checkpoints: {len(plotting_checkpoints)}; should be 4')
         else:
             raise ValueError(f'wrong `draw_plot` parameter: {draw_plot}')
+
+        if plotting_checkpoints is not None and len(plotting_checkpoints) == 4:
+            self.plotting_checkpoints = plotting_checkpoints
+        else:
+            # set plotting checkpoint at 10%, 1/3, 2/3 and 100% of the number of generations
+            self.plotting_checkpoints = [int(np.round(frac * self.generations, 0))
+                                         for frac in [0.1, 1.0 / 3.0, 2.0 / 3.0, 1.0]]
+        self.color_dict = {gen: color for gen, color in zip(self.plotting_checkpoints,
+                                                            ['tab:green', 'tab:blue', 'tab:purple', 'tab:red'])}
+        self.marker_dict = {gen: shape for gen, shape in zip(self.plotting_checkpoints, ['^', 's', 'p', 'o'])}
 
         if isinstance(draw_value_function, bool):
             self.draw_value_function = draw_value_function
@@ -164,9 +172,9 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             for key, value in self.__dict__.items():
                 if isinstance(value, int) or isinstance(value, str) or isinstance(value, bool) \
                         or isinstance(value, float) or isinstance(value, list):
-                    print(f'\t{key}:'.ljust(25) + f'\t{value}', flush=True)
+                    print(f'\t{key}:'.ljust(30) + f'\t{value}', flush=True)
                 else:
-                    print(f'\t{key}:'.ljust(25) + f'\t{value.__class__.__name__}', flush=True)
+                    print(f'\t{key}:'.ljust(30) + f'\t{value.__class__.__name__}', flush=True)
         self.start_time = start_time
         self.duration = 0.0
 
@@ -196,7 +204,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         self.aco_means = population
 
         # weight update
-        if self.with_nondominance_ranking:
+        if not self.without_nondominance_ranking:
             non_dominated_fronts = self.nds.do(objective_values)
             ranked_population = np.zeros(self.ants)
             ranking_start = 0
@@ -218,7 +226,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         #     for n in range(self.variables):
         #         self.aco_stds[k, n] = self.xi * np.sum(np.abs(population[:, n] - population[k, n])) / (self.ants - 1)
 
-    def update_preference_model(self, objective_values):
+    def update_preference_model(self, objective_values, init=False):
         # randomly select 2 non-dominated solutions and ask DM for comparison
         # for the random selection use the first available front with more than 1 solution (counting from the best one)
         non_dominated_fronts = self.nds.do(objective_values)
@@ -241,7 +249,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             compared_pair = [obj1, obj2]
         else:
             compared_pair = [obj2, obj1]
-        self.model.update(compared_pair)
+        self.model.update(compared_pair, init=init)
 
     def reflected_normal_distribution(self, loc, scale, min_val, max_val):
         # safely get a number from normal distribution
@@ -289,18 +297,18 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             'user_value_function': str(self.user_value_function),
             'extreme_objective': self.extreme_objective,
             'model': str(self.model),
-            'with_nondominance_ranking': self.with_nondominance_ranking,
+            'without_nondominance_ranking': self.without_nondominance_ranking,
+            'max_no_improvement': self.max_no_improvement,
             'best_convergence': np.min(convergence_indicators),
             'avg_convergence': np.mean(convergence_indicators),
             'duration': self.duration
         }, index=[0])
-        csv_file = 'results/results.csv'
-        if os.path.isfile(csv_file):
-            results_df.to_csv(csv_file, mode='a', sep=';', index=False, header=False)
+        if os.path.isfile(self.results_file):
+            results_df.to_csv(self.results_file, mode='a', sep=';', index=False, header=False)
         else:
-            results_df.to_csv(csv_file, mode='w', sep=';', index=False, header=True)
+            results_df.to_csv(self.results_file, mode='w', sep=';', index=False, header=True)
         if self.verbose:
-            print(f'Results saved to {csv_file}')
+            print(f'Results saved to {self.results_file}')
 
     def plot(self, history):
         if self.objectives == 2:
@@ -379,7 +387,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             plt.xlabel(f'Objective {obj+1}')
             plt.ylabel(f'Marginal value of objective {obj+1}')
             plt.xticks(np.arange(self.model.best_obj[obj], np.round(self.model.worst_obj[obj]+0.5, 1), 0.5))
-            plt.yticks(np.arange(0.0, 1.1, 0.1))
+            plt.yticks(np.arange(0.0, 1.1, 0.1))  # TODO: special handling for very low values of utility
             plt.grid('both')
             plt.legend(loc='upper right')
         plot_file = f'results/vf_{self.start_time}' + ('.pdf' if self.pdf_plots else '.png')
@@ -403,7 +411,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
 
         history = []
         vf_history = []
-        self.update_preference_model(objective_values)
+        self.update_preference_model(objective_values, init=True)
         self.update_ant_colony(population, objective_values)
 
         convergence_indicators = [self.user_value_function.calculate(obj_val) for obj_val in objective_values]
@@ -465,7 +473,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
 
         stop = time.perf_counter()
         self.duration = stop - start
-        if self.save_csv:
+        if not self.dont_save_csv:
             self.save(objective_values, len(history))
         if self.draw_plot:
             self.plot(history)
@@ -475,7 +483,6 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             print(f'PC-ACO completed optimization successfully in {np.round(self.duration, 3)}s')
 
         # return best, avg, duration, history
-        convergence_indicators = [self.user_value_function.calculate(obj_val) for obj_val in objective_values]
         return np.min(convergence_indicators), np.mean(convergence_indicators), self.duration, history
 
 
@@ -508,15 +515,16 @@ if __name__ == '__main__':
                              'default=False')
     parser.add_argument('-m', '--model', choices=['mdvf', 'mscvf', 'msvf', 'ror', 'mc'], default='mdvf',
                         help='type of the value function approach for the preference model; default=mdvf')
-    parser.add_argument('-r', '--with-nondominance-ranking', action='store_true',
-                        help='whether to use the nondominance ranking during solution sorting; '
-                             'strongly recommended to turn it on; default=False')
+    parser.add_argument('-r', '--without-nondominance-ranking', action='store_true',
+                        help='turn off the nondominance ranking during solution sorting; default=False')
     parser.add_argument('-mni', '--max-no-improvement', type=int, default=20,
                         help='max number of generations without improvement; default=20')
     parser.add_argument('-s', '--seed', type=int, default=42,
                         help='random number generator seed; default=42')
-    parser.add_argument('-c', '--save-csv', action='store_true',
-                        help='save results to csv; default=False')
+    parser.add_argument('-c', '--dont-save-csv', action='store_true',
+                        help='turn off saving results to csv; default=False')
+    parser.add_argument('-f', '--results-file', type=str, default='results/results.csv',
+                        help='path to the CSV file where final results will be saved')
     parser.add_argument('-d', '--draw-plot', action='store_true',
                         help='draw plot of the results; default=False')
     parser.add_argument('-dvf', '--draw-value-function', action='store_true',
@@ -539,9 +547,10 @@ if __name__ == '__main__':
                                                           user_value_function=args.user_value_function,
                                                           extreme_objective=args.extreme_objective,
                                                           model=args.model,
-                                                          with_nondominance_ranking=args.with_nondominance_ranking,
+                                                          without_nondominance_ranking=args.without_nondominance_ranking,
                                                           seed=args.seed,
-                                                          save_csv=args.save_csv,
+                                                          dont_save_csv=args.dont_save_csv,
+                                                          results_file=args.results_file,
                                                           draw_plot=args.draw_plot,
                                                           pdf_plots=args.pdf_plots,
                                                           verbose=args.verbose)
