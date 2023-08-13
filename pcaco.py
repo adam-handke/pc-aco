@@ -19,7 +19,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                  objectives=2, user_value_function='linear', extreme_objective=False, model='mdvf',
                  without_nondominance_ranking=False, max_no_improvement=20, seed=42, dont_save_csv=False,
                  results_file='results/results.csv', draw_plot=False, plotting_checkpoints=None, plotting_ticks=None,
-                 draw_value_function=False, pdf_plots=False, verbose=False):
+                 draw_value_function=False, pdf_plots=False, plot_file=None, vf_plot_file=None, verbose=False):
         start_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
         # handling given parameters
         if isinstance(generations, int) and generations > 0:
@@ -166,6 +166,16 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                                      'axes.formatter.use_mathtext': True})
             # make all plot text same size
             plt.rcParams.update({'font.size': 16})
+
+        if plot_file is None or isinstance(plot_file, str):
+            self.plot_file = plot_file
+        else:
+            raise ValueError(f'wrong `plot_file` parameter: {plot_file}')
+
+        if vf_plot_file is None or isinstance(vf_plot_file, str):
+            self.vf_plot_file = vf_plot_file
+        else:
+            raise ValueError(f'wrong `vf_plot_file` parameter: {vf_plot_file}')
 
         if self.verbose:
             print(f'PC-ACO initialized successfully at {start_time} with parameters:', flush=True)
@@ -316,7 +326,7 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             try:
                 pareto_front = self.problem.pareto_front()
                 plt.plot(pareto_front[:, 0], pareto_front[:, 1], color='dimgrey', marker=None, alpha=0.5,
-                            label=self.problem.__class__.__name__ + ' Pareto-front', linewidth=3)
+                            label=self.problem.__class__.__name__ + ' Pareto-front', linewidth=3, linestyle='--')
             except:
                 print('Pareto-front plotting error.')
             for gen_to_plot in self.plotting_checkpoints:
@@ -341,17 +351,21 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                 plt.legend(loc='lower left')
             else:
                 plt.legend(loc='upper right')
-            plot_file = f'results/plot_{self.start_time}' + ('.pdf' if self.pdf_plots else '.png')
-            plt.savefig(plot_file, bbox_inches='tight', pad_inches=0.1)
+            if self.plot_file is None:
+                file = f'results/plot_{self.start_time}' + ('.pdf' if self.pdf_plots else '.png')
+            else:
+                file = self.plot_file
+            plt.savefig(file, bbox_inches='tight', pad_inches=0.1)
             plt.close()
             if self.verbose:
-                print(f'Plot saved to {plot_file}')
+                print(f'Plot saved to {file}')
         else:
             print('Plotting error - only instances with 2 objectives can be plotted.', flush=True)
 
     def show_final_value_function(self, vf_history):
         plt.figure(figsize=(10 * self.objectives, 10))
         for obj in range(self.objectives):
+            max_util = -np.inf
             plt.subplot(1, self.objectives, obj+1)
             if str(self.model) == 'MC':
                 for gen_to_plot in self.plotting_checkpoints:
@@ -362,6 +376,9 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                                      color=self.color_dict[gen_to_plot], marker=self.marker_dict[gen_to_plot],
                                      alpha=0.7, linewidth=3,
                                      label=(f'PC-ACO-{str(self.model)} after {gen_to_plot} gen.' if vf == 0 else None))
+                            tmp_max_util = np.max(vf_history[gen_to_plot-1][vf][obj]['util'])
+                            if tmp_max_util > max_util:
+                                max_util = tmp_max_util
                     else:
                         for vf in range(len(vf_history[-1])):
                             plt.plot(vf_history[-1][vf][obj]['obj'], vf_history[-1][vf][obj]['util'],
@@ -369,6 +386,9 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                                      alpha=0.7, linewidth=3,
                                      label=((f'PC-ACO-{str(self.model)} after {len(vf_history)} gen. '
                                              f'(early stop)') if vf == 0 else None))
+                            tmp_max_util = np.max(vf_history[-1][vf][obj]['util'])
+                            if tmp_max_util > max_util:
+                                max_util = tmp_max_util
                         break
             else:
                 for gen_to_plot in self.plotting_checkpoints:
@@ -377,27 +397,42 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                                  color=self.color_dict[gen_to_plot], marker=self.marker_dict[gen_to_plot],
                                  alpha=0.7, linewidth=3,
                                  label=f'PC-ACO-{str(self.model)} after {gen_to_plot} gen.')
+                        tmp_max_util = np.max(vf_history[gen_to_plot-1][obj]['util'])
+                        if tmp_max_util > max_util:
+                            max_util = tmp_max_util
                     else:
                         # handle case when pc-aco stops early due to no improvement
                         plt.plot(vf_history[-1][obj]['obj'], vf_history[-1][obj]['util'],
                                  color=self.color_dict[gen_to_plot], marker=self.marker_dict[gen_to_plot],
                                  alpha=0.7, linewidth=3,
                                  label=f'PC-ACO-{str(self.model)} after {len(vf_history)} gen. (early stop)')
+                        tmp_max_util = np.max(vf_history[-1][obj]['util'])
+                        if tmp_max_util > max_util:
+                            max_util = tmp_max_util
                         break
             plt.xlabel(f'Objective {obj+1}')
             plt.ylabel(f'Marginal value of objective {obj+1}')
             plt.xticks(np.arange(self.model.best_obj[obj], np.round(self.model.worst_obj[obj]+0.5, 1), 0.5))
-            plt.yticks(np.arange(0.0, 1.1, 0.1))  # TODO: special handling for very low values of utility
+            if max_util < 0.01:
+                # special handling for very low values of utility
+                plt.yticks(np.linspace(0.0, max_util, 11))
+            else:
+                plt.yticks(np.arange(0.0, 1.1, 0.1))
             plt.grid('both')
-            plt.legend(loc='upper right')
-        plot_file = f'results/vf_{self.start_time}' + ('.pdf' if self.pdf_plots else '.png')
-        plt.savefig(plot_file, bbox_inches='tight', pad_inches=0.1)
+            plt.legend()  # no fixed legend position, better to do it automatically
+        if self.vf_plot_file is None:
+            file = f'results/vf_{self.start_time}' + ('.pdf' if self.pdf_plots else '.png')
+        else:
+            file = self.vf_plot_file
+        plt.savefig(file, bbox_inches='tight', pad_inches=0.1)
         plt.close()
         if self.verbose:
-            print(f'Value function plot saved to {plot_file}')
+            print(f'Value function plot saved to {file}')
 
     def solve(self):
         start = time.perf_counter()
+        history = []
+        vf_history = []
 
         # random initialization of the 0th population
         population = np.random.uniform(low=np.tile(self.problem.xl, (self.ants, 1)),
@@ -409,10 +444,10 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         self.model.best_obj = np.zeros(self.objectives)
         self.model.worst_obj = np.ceil(np.max(objective_values, axis=0))
 
-        history = []
-        vf_history = []
         self.update_preference_model(objective_values, init=True)
         self.update_ant_colony(population, objective_values)
+        history.append(objective_values)
+        vf_history.append(self.model.interp_points)
 
         convergence_indicators = [self.user_value_function.calculate(obj_val) for obj_val in objective_values]
         last_performance = np.round(np.mean(convergence_indicators))
@@ -474,11 +509,11 @@ class PairwiseComparisonsBasedAntColonyOptimization:
         stop = time.perf_counter()
         self.duration = stop - start
         if not self.dont_save_csv:
-            self.save(objective_values, len(history))
+            self.save(objective_values, len(history)-1)
         if self.draw_plot:
-            self.plot(history)
+            self.plot(history[1:])
         if self.draw_value_function:
-            self.show_final_value_function(vf_history)
+            self.show_final_value_function(vf_history[1:])
         if self.verbose:
             print(f'PC-ACO completed optimization successfully in {np.round(self.duration, 3)}s')
 
