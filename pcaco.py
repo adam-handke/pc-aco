@@ -313,6 +313,12 @@ class PairwiseComparisonsBasedAntColonyOptimization:
     def plot(self, history):
         if self.objectives == 2:
             plt.figure(figsize=(10, 10))
+            try:
+                pareto_front = self.problem.pareto_front()
+                plt.plot(pareto_front[:, 0], pareto_front[:, 1], color='dimgrey', marker=None, alpha=0.5,
+                            label=self.problem.__class__.__name__ + ' Pareto-front', linewidth=3)
+            except:
+                print('Pareto-front plotting error.')
             for gen_to_plot in self.plotting_checkpoints:
                 if gen_to_plot <= len(history):
                     plt.scatter(history[gen_to_plot-1][:, 0], history[gen_to_plot-1][:, 1],
@@ -324,12 +330,6 @@ class PairwiseComparisonsBasedAntColonyOptimization:
                                 c=self.color_dict[gen_to_plot], marker=self.marker_dict[gen_to_plot], alpha=0.7,
                                 label=f'PC-ACO-{str(self.model)} after {len(history)} gen. (early stop)')
                     break
-            try:
-                pareto_front = self.problem.pareto_front()
-                plt.scatter(pareto_front[:, 0], pareto_front[:, 1], edgecolors='dimgrey', facecolors='none',
-                            label=self.problem.__class__.__name__ + ' Pareto-front', alpha=0.8, marker='.')
-            except:
-                print('Pareto-front plotting error.')
             plt.xlabel('Objective 1')
             plt.ylabel('Objective 2')
             if self.plotting_ticks is not None:
