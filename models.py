@@ -157,7 +157,7 @@ class MostDiscriminatingValueFunction(Model):
     def solve_linear_programming_problem(self):
         # LP definition based on the PRVF problem equivalent to the MDVF problem as in the NEMO-0 approach
         # (J. Branke et al., Learning Value Functions in Interactive Evolutionary Multiobjective Optimization, 2015)
-        # defined as a separate method because it is used by MSCVF, MSVF and ROR
+        # defined as a separate method because it is used by MSCVF, MSVF and MRVF
         lp = LpProblem(name='PRVF/MDVF', sense=LpMaximize)
         u_better, u_worse, u_best, u_worst = self.define_utilities()
         epsilon = LpVariable('epsilon')
@@ -320,9 +320,9 @@ class MaximalSumOfScoresValueFunction(Model):
                 break
 
 
-class RobustOrdinalRegression(Model):
+class MostRepresentativeValueFunction(Model):
     def __str__(self):
-        return 'ROR'
+        return 'MRVF'
 
     def update(self, compared_pair, init=False):
         super().update(compared_pair)

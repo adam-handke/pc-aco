@@ -6,7 +6,7 @@ from pcaco import PairwiseComparisonsBasedAntColonyOptimization
 if __name__ == '__main__':
     # code for conducting the experiments
     parser = argparse.ArgumentParser()
-    parser.add_argument('-m', '--model', choices=['mdvf', 'mscvf', 'msvf', 'ror', 'mc', 'all'], default='all',
+    parser.add_argument('-m', '--model', choices=['mdvf', 'mscvf', 'msvf', 'mrvf', 'mc', 'all'], default='all',
                         help='with which type of the value function approach will the experiments be run; default=all')
     parser.add_argument('-s', '--start_seed', type=int, default=100, help='starting seed')
     parser.add_argument('-n', '--num_seeds', type=int, default=20,
@@ -15,7 +15,7 @@ if __name__ == '__main__':
 
     model_list = None
     if args.model == 'all':
-        model_list = ['mdvf', 'mscvf', 'msvf', 'ror', 'mc']
+        model_list = ['mdvf', 'mscvf', 'msvf', 'mrvf', 'mc']
     else:
         model_list = [args.model]
     results_file = 'results/' + args.model + '_results.csv'

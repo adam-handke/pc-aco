@@ -21,7 +21,7 @@ if __name__ == '__main__':
     # convergence plot, generation plot and value function comparison for a single problem
     plt.figure(figsize=(10, 10))
     colors = ['tab:orange', 'navy', 'tab:cyan', 'tab:olive', 'firebrick']
-    for m, model in enumerate(['mdvf', 'mscvf', 'msvf', 'ror', 'mc']):
+    for m, model in enumerate(['mdvf', 'mscvf', 'msvf', 'mrvf', 'mc']):
         pcaco = PairwiseComparisonsBasedAntColonyOptimization(generations=gens,
                                                               ants=30,
                                                               problem=problem,

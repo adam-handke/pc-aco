@@ -11,7 +11,7 @@ from matplotlib import font_manager
 
 from user_value_functions import LinearUserValueFunction, ChebycheffUserValueFunction
 from models import MostDiscriminatingValueFunction, MinimalSlopeChangeValueFunction, MaximalSumOfScoresValueFunction, \
-    RobustOrdinalRegression, MonteCarlo
+    MostRepresentativeValueFunction, MonteCarlo
 
 
 class PairwiseComparisonsBasedAntColonyOptimization:
@@ -99,8 +99,8 @@ class PairwiseComparisonsBasedAntColonyOptimization:
             self.model = MinimalSlopeChangeValueFunction(self.buffer, self.objectives, self.verbose)
         elif model == 'msvf':
             self.model = MaximalSumOfScoresValueFunction(self.buffer, self.objectives, self.verbose)
-        elif model == 'ror':
-            self.model = RobustOrdinalRegression(self.buffer, self.objectives, self.verbose)
+        elif model == 'mrvf':
+            self.model = MostRepresentativeValueFunction(self.buffer, self.objectives, self.verbose)
         elif model == 'mc':
             self.model = MonteCarlo(self.buffer, self.objectives, self.verbose)
         else:
@@ -548,7 +548,7 @@ if __name__ == '__main__':
     parser.add_argument('-e', '--extreme-objective', action='store_true',
                         help='the user considers one of the objectives as much more important than all others; '
                              'default=False')
-    parser.add_argument('-m', '--model', choices=['mdvf', 'mscvf', 'msvf', 'ror', 'mc'], default='mdvf',
+    parser.add_argument('-m', '--model', choices=['mdvf', 'mscvf', 'msvf', 'mrvf', 'mc'], default='mdvf',
                         help='type of the value function approach for the preference model; default=mdvf')
     parser.add_argument('-r', '--without-nondominance-ranking', action='store_true',
                         help='turn off the nondominance ranking during solution sorting; default=False')
