@@ -28,3 +28,6 @@ python pcaco.py -h
 ```
 python -m unittest discover -s test/
 ```
+
+## Plot of an example run for WFG1
+![MDVF plot for WFG1](https://github.com/adam-handke/pc-aco/blob/main/example.png?raw=true)
